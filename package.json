@@ -1,0 +1,18 @@
+{
+    "name": "roon-extension-manager",
+    "version": "0.1.0",
+    "description": "Roon Extension for managing Roon Extensions",
+    "main": "manager.js",
+    "author": "The Appgineer",
+    "license": "Apache-2.0",
+    "dependencies": {
+        "node-roon-api": "github:roonlabs/node-roon-api",
+        "node-roon-api-settings": "github:roonlabs/node-roon-api-settings",
+        "node-roon-api-status": "github:roonlabs/node-roon-api-status",
+        "node-api-extension-installer": "github:TheAppgineer/node-api-extension-installer"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/TheAppgineer/roon-extension-manager.git"
+    }
+}
