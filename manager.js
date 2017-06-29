@@ -17,6 +17,7 @@
 var RoonApi               = require("node-roon-api"),
     RoonApiSettings       = require('node-roon-api-settings'),
     RoonApiStatus         = require('node-roon-api-status'),
+    ApiTimeInput          = require('node-api-time-input'),
     ApiExtensionInstaller = require('node-api-extension-installer');
 
 const ACTION_NO_CHANGE = 1;
@@ -28,21 +29,24 @@ const ACTION_STOP = 6;
 
 var core;
 var pending_actions = {};
+var extension_list = [];
+var timeout_id = null;
 
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.1.0",
+    display_version:     "0.2.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
-    website:             'https://github.com/TheAppgineer/roon-extension-manager',
+    website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
 
     core_paired: function(core_) {
         core = core_;
-        console.log(core.display_name);
+        console.log("Core paired.");
     },
     core_unpaired: function(core_) {
         core = undefined;
+        console.log("Core unpaired!");
     }
 });
 
@@ -68,18 +72,28 @@ var svc_settings = new RoonApiSettings(roon, {
             svc_settings.update_settings(l);
             roon.save_config("settings", ext_settings);
 
+            set_update_timer();
             perform_pending_actions();
         }
     }
 });
 
 var svc_status = new RoonApiStatus(roon);
+var timer = new ApiTimeInput();
 
-var installer = new ApiExtensionInstaller((installed) => {
-    console.log(installed);
-},
-(message, is_error) => {
-    svc_status.set_status(message, is_error);
+var installer = new ApiExtensionInstaller({
+    repository_changed: function(values) {
+        extension_list = values;
+    },
+    installs_changed: function(installed) {
+        console.log(installed);
+    },
+    updates_changed: function(updates) {
+        console.log(updates);
+    },
+    status_changed: function(message, is_error) {
+        svc_status.set_status(message, is_error);
+    }
 });
 
 roon.init_services({
@@ -92,13 +106,17 @@ function makelayout(settings) {
         layout:    [],
         has_error: false
     };
-    let extension_list = installer.get_extension_list();
 
     if (extension_list) {
         let global = {
             type:    "group",
             title:   "[GLOBAL SETTINGS]",
             items:   []
+        };
+        let update = {
+            type:    "string",
+            title:   "Check for updates @ [hh:mm]",
+            setting: "update_time"
         };
         let selector = {
             type:    "dropdown",
@@ -123,11 +141,16 @@ function makelayout(settings) {
 
         selector.values = selector.values.concat(extension_list);
 
-        global.items.push({
-            type:    "string",
-            title:   "Check for updates @ [hh:mm]",
-            setting: "update_time"
-        });
+        global.items.push(update);
+
+        let valid_time = timer.validate_time_string(settings.update_time);
+
+        if (valid_time) {
+            settings.update_time = valid_time.friendly;
+        } else {
+            update.error = "Time should conform to format: hh:mm[am|pm]";
+            l.has_error = true;
+        }
 
         let index = settings.selected_extension;
         if (index != undefined) {
@@ -288,12 +311,65 @@ function perform_pending_actions() {
     }
 }
 
+function set_update_timer() {
+    let valid_time = timer.validate_time_string(ext_settings.update_time);
+
+    if (valid_time) {
+        const now = Date.now();
+        let date = new Date(now);
+        let tz_offset = date.getTimezoneOffset();
+
+        date.setSeconds(0);
+        date.setMilliseconds(0);
+        date.setHours(valid_time.hours);
+        date.setMinutes(valid_time.minutes);
+
+        let timeout_time = date.getTime();
+
+        if (timeout_time < now) {
+            // Time has passed for today
+            timeout_time += 24 * 60 * 60 * 1000;
+        }
+
+        date = new Date(timeout_time);
+        tz_offset -= date.getTimezoneOffset();
+
+        if (tz_offset) {
+            timeout_time -= tz_offset * 60 * 1000;
+        }
+
+        timeout_time -= now;
+
+        if (timeout_id != null) {
+            // Clear pending timeout
+            clearTimeout(timeout_id);
+        }
+
+        timeout_id = setTimeout(timer_timed_out, timeout_time);
+    } else {
+        // Clear pending timeout
+        clearTimeout(timeout_id);
+        timeout_id = null;
+    }
+}
+
+function timer_timed_out() {
+    timeout_id = null;
+
+    console.log("It's update time!");
+    installer.update_all();
+
+    set_update_timer();
+}
+
 function init() {
     let os = require("os");
     let hostname = os.hostname().split(".")[0];
 
     roon.extension_reginfo.extension_id += "." + hostname;
     roon.extension_reginfo.display_name += " @" + hostname;
+
+    set_update_timer();
 }
 
 init();
