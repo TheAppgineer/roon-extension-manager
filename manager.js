@@ -94,7 +94,7 @@ var installer = new ApiExtensionInstaller({
     status_changed: function(message, is_error) {
         svc_status.set_status(message, is_error);
     }
-});
+}, process.argv[2]);
 
 roon.init_services({
     provided_services: [ svc_settings, svc_status ]
@@ -143,13 +143,15 @@ function makelayout(settings) {
 
         global.items.push(update);
 
-        let valid_time = timer.validate_time_string(settings.update_time);
+        if (settings.update_time) {
+            let valid_time = timer.validate_time_string(settings.update_time);
 
-        if (valid_time) {
-            settings.update_time = valid_time.friendly;
-        } else {
-            update.error = "Time should conform to format: hh:mm[am|pm]";
-            l.has_error = true;
+            if (valid_time) {
+                settings.update_time = valid_time.friendly;
+            } else {
+                update.error = "Time should conform to format: hh:mm[am|pm]";
+                l.has_error = true;
+            }
         }
 
         let index = settings.selected_extension;

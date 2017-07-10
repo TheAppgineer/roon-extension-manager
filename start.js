@@ -22,4 +22,4 @@ var installer = new ApiExtensionInstaller({
     repository_changed: function(values) {
         installer.start(MANAGER_INDEX);
     }
-});
+}, process.argv[2]);
