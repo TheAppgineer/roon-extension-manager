@@ -50,10 +50,10 @@ Roon Extension for managing Roon Extensions.
 1. Run it!
     ```
     cd ~/.RoonExtensions/lib/node_modules/roon-extension-manager
-    node .
+    node start.js
     ```
 
-    The extension should appear in Roon now. See Settings->Extensions. If you have multiple Roon Cores on the network, all of them should see it.
+    The extension should appear in Roon now. See Settings->Extensions. If you have multiple Roon Cores on the network, all of them should see it but only one can connect at a time.
 
 ## Notes
 * Remember that extensions are installed on the device at which the Extension Manager is running (hostname is included in the extension name to differentiate between multiple devices).
