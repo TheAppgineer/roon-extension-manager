@@ -31,6 +31,9 @@ var core;
 var pending_actions = {};
 var extension_list = [];
 var timeout_id = null;
+var watchdog_timer_id = null;
+var last_message;
+var last_is_error;
 
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
@@ -43,10 +46,15 @@ var roon = new RoonApi({
     core_paired: function(core_) {
         core = core_;
         console.log("Core paired.");
+
+        setup_watchdog_timer();
     },
     core_unpaired: function(core_) {
         core = undefined;
         console.log("Core unpaired!");
+
+        clear_watchdog_timer();
+        installer.restart_manager();
     }
 });
 
@@ -92,6 +100,9 @@ var installer = new ApiExtensionInstaller({
         console.log(updates);
     },
     status_changed: function(message, is_error) {
+        last_message = message;
+        last_is_error = is_error;
+
         svc_status.set_status(message, is_error);
     }
 }, process.argv[2]);
@@ -362,6 +373,23 @@ function timer_timed_out() {
     installer.update_all();
 
     set_update_timer();
+}
+
+function setup_watchdog_timer() {
+    clear_watchdog_timer();
+
+    watchdog_timer_id = setInterval(kick_watchdog, 60000);
+}
+
+function kick_watchdog() {
+    // Check if the Roon API is still running fine by refreshing the status message
+    svc_status.set_status(last_message, last_is_error);
+}
+
+function clear_watchdog_timer() {
+    if (watchdog_timer_id) {
+        clearInterval(watchdog_timer_id);
+    }
 }
 
 function init() {
