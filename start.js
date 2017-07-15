@@ -20,9 +20,9 @@ var ApiExtensionInstaller = require('node-api-extension-installer');
 
 var installer = new ApiExtensionInstaller({
     repository_changed: function(values) {
-        installer.start(MANAGER_INDEX);
-
         console.log("\nRoon Extension Manager started successfully!\n" +
                     "Select Settings->Extensions on your Roon Remote to manage your extensions.\n");
+
+        installer.start(MANAGER_INDEX);
     }
 }, process.argv[2]);
