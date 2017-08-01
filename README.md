@@ -46,6 +46,7 @@ Roon Extension for managing Roon Extensions.
     ```
     npm install -g https://github.com/TheAppgineer/roon-extension-manager.git
     ```
+    Note: On Windows it is easiest to run this command from the Git CMD prompt (part of git installation), this ensures that the git executable can be found.
 
 1. Run it!
     ```
