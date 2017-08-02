@@ -1,6 +1,6 @@
 {
     "name": "roon-extension-manager",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Roon Extension for managing Roon Extensions",
     "main": "manager.js",
     "author": "The Appgineer",
