@@ -25,4 +25,4 @@ var installer = new ApiExtensionInstaller({
 
         installer.start(MANAGER_INDEX);
     }
-}, process.argv[2]);
+}, process.argv[2], process.argv[3] != 'service');

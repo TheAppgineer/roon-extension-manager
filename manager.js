@@ -105,7 +105,7 @@ var installer = new ApiExtensionInstaller({
 
         svc_status.set_status(message, is_error);
     }
-}, process.argv[2]);
+}, process.argv[2], process.argv[3] != 'service');
 
 roon.init_services({
     provided_services: [ svc_settings, svc_status ]
