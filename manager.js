@@ -25,7 +25,8 @@ const ACTION_INSTALL = 2;
 const ACTION_UPDATE = 3;
 const ACTION_UNINSTALL = 4;
 const ACTION_START = 5;
-const ACTION_STOP = 6;
+const ACTION_RESTART = 6;
+const ACTION_STOP = 7;
 
 var core;
 var pending_actions = {};
@@ -38,7 +39,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.3.0",
+    display_version:     "0.3.1",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
@@ -186,6 +187,7 @@ function makelayout(settings) {
                 }
                 action.values.push({ title: "Uninstall", value: ACTION_UNINSTALL });
                 if (is_running(index)) {
+                    action.values.push({ title: "Restart", value: ACTION_RESTART });
                     action.values.push({ title: "Stop", value: ACTION_STOP });
                 } else {
                     action.values.push({ title: "Start", value: ACTION_START });
@@ -267,6 +269,9 @@ function update_pending_actions(settings) {
                 case ACTION_START:
                     friendly = "Start ";
                     break;
+                case ACTION_RESTART:
+                    friendly = "Restart ";
+                    break;
                 case ACTION_STOP:
                     friendly = "Stop ";
                     break;
@@ -316,6 +321,9 @@ function perform_pending_actions() {
                 break;
             case ACTION_START:
                 installer.start(+repos_index);
+                break;
+            case ACTION_RESTART:
+                installer.restart(+repos_index);
                 break;
             case ACTION_STOP:
                 installer.stop(+repos_index);
