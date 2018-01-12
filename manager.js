@@ -1,4 +1,4 @@
-// Copyright 2017 The Appgineer
+// Copyright 2017, 2018 The Appgineer
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.4.0",
+    display_version:     "0.5.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
@@ -176,24 +176,18 @@ function makelayout(settings) {
                 extension.title = "(no description)";
             }
 
-            const version = is_installed(index);
+            const version = installer.get_status(index).version;
             status.title = (version ? "INSTALLED: version " + version : "NOT INSTALLED")
 
             if (is_pending(index)) {
                 action.values.push({ title: "Revert Action", value: ACTION_NO_CHANGE });
-            } else if (is_installed(index)) {
-                if (installer.has_update(index)) {
-                    action.values.push({ title: "Update", value: ACTION_UPDATE });
-                }
-                action.values.push({ title: "Uninstall", value: ACTION_UNINSTALL });
-                if (is_running(index)) {
-                    action.values.push({ title: "Restart", value: ACTION_RESTART });
-                    action.values.push({ title: "Stop", value: ACTION_STOP });
-                } else {
-                    action.values.push({ title: "Start", value: ACTION_START });
-                }
             } else {
-                action.values.push({ title: "Install", value: ACTION_INSTALL });
+                const action_strings = ['Install', 'Update', 'Uninstall', 'Start', 'Restart', 'Stop'];
+                const actions = installer.get_actions(index);
+
+                for (let i = 0; i < actions.length; i++) {
+                    action.values.push({ title: action_strings[actions[i] - 1], value: actions[i] + 1 });
+                }
             }
 
             extension.items.push({
@@ -224,14 +218,6 @@ function makelayout(settings) {
     }
 
     return l;
-}
-
-function is_installed(repos_index) {
-    return installer.get_status(repos_index).version;
-}
-
-function is_running(repos_index) {
-    return (installer.get_status(repos_index).state == 'running');
 }
 
 function is_pending(repos_index) {
