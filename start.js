@@ -1,4 +1,4 @@
-// Copyright 2017 The Appgineer
+// Copyright 2017, 2018 The Appgineer
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 "use strict";
 
-const MANAGER_INDEX = 0;
+const MANAGER_NAME = 'roon-extension-manager';
 
 var ApiExtensionInstaller = require('node-api-extension-installer');
 
@@ -23,6 +23,6 @@ var installer = new ApiExtensionInstaller({
         console.log("\nRoon Extension Manager started successfully!\n" +
                     "Select Settings->Extensions on your Roon Remote to manage your extensions.\n");
 
-        installer.start(MANAGER_INDEX);
+        installer.start(MANAGER_NAME);
     }
 }, process.argv[2], process.argv[3] != 'service');

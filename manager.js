@@ -30,6 +30,7 @@ const ACTION_STOP = 7;
 
 var core;
 var pending_actions = {};
+var category_list = [];
 var extension_list = [];
 var timeout_id = null;
 var watchdog_timer_id = null;
@@ -39,7 +40,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.5.0",
+    display_version:     "0.6.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
@@ -60,7 +61,7 @@ var roon = new RoonApi({
 });
 
 var ext_settings = roon.load_config("settings") || {
-    update_time: "02:00",
+    update_time: "02:00"
 };
 
 var svc_settings = new RoonApiSettings(roon, {
@@ -75,6 +76,7 @@ var svc_settings = new RoonApiSettings(roon, {
         req.send_complete(l.has_error ? "NotValid" : "Success", { settings: l });
 
         if (!isdryrun && !l.has_error) {
+            delete l.values.selected_category;
             delete l.values.selected_extension;
 
             ext_settings = l.values;
@@ -92,7 +94,7 @@ var timer = new ApiTimeInput();
 
 var installer = new ApiExtensionInstaller({
     repository_changed: function(values) {
-        extension_list = values;
+        category_list = values;
     },
     installs_changed: function(installed) {
         console.log(installed);
@@ -119,56 +121,69 @@ function makelayout(settings) {
         has_error: false
     };
 
-    if (extension_list) {
-        let global = {
-            type:    "group",
-            title:   "[GLOBAL SETTINGS]",
-            items:   []
-        };
-        let update = {
-            type:    "string",
-            title:   "Check for updates @ [hh:mm]",
-            setting: "update_time"
-        };
-        let selector = {
-            type:    "dropdown",
-            title:   "[EXTENSION]",
-            values:  [{ title: "(select extension)", value: undefined }],
-            setting: "selected_extension"
-        };
-        let extension = {
-            type:    "group",
-            title:   "(no extension selected)",
-            items:   [],
-        };
-        let status = {
-            type:    "label",
-        };
-        let action = {
-            type:    "dropdown",
-            title:   "Action",
-            values:  [{ title: "(select action)", value: undefined  }],
-            setting: "action"
-        }
+    let global = {
+        type:    "group",
+        title:   "[GLOBAL SETTINGS]",
+        items:   []
+    };
+    let update = {
+        type:    "string",
+        title:   "Check for updates @ [hh:mm]",
+        setting: "update_time"
+    };
+    let category = {
+        type:    "dropdown",
+        title:   "[CATEGORY]",
+        values:  [{ title: "(select category)", value: undefined }],
+        setting: "selected_category"
+    };
+    let selector = {
+        type:    "dropdown",
+        title:   "[EXTENSION]",
+        values:  [{ title: "(select extension)", value: undefined }],
+        setting: "selected_extension"
+    };
+    let extension = {
+        type:    "group",
+        title:   "(no extension selected)",
+        items:   [],
+    };
+    let status = {
+        type:    "label",
+    };
+    let action = {
+        type:    "dropdown",
+        title:   "Action",
+        values:  [{ title: "(select action)", value: undefined  }],
+        setting: "action"
+    }
 
+    global.items.push(update);
+
+    if (settings.update_time) {
+        let valid_time = timer.validate_time_string(settings.update_time);
+
+        if (valid_time) {
+            settings.update_time = valid_time.friendly;
+        } else {
+            update.error = "Time should conform to format: hh:mm[am|pm]";
+            l.has_error = true;
+        }
+    }
+
+    let category_index = settings.selected_category;
+    category.values = category.values.concat(category_list);
+
+    if (category_index !== undefined) {
+        extension_list = installer.get_extensions_by_category(category_index);
         selector.values = selector.values.concat(extension_list);
 
-        global.items.push(update);
+        selector.title = '[' + category_list[category_index].title.toUpperCase() + ' EXTENSIONS]';
 
-        if (settings.update_time) {
-            let valid_time = timer.validate_time_string(settings.update_time);
+        let name = settings.selected_extension;
 
-            if (valid_time) {
-                settings.update_time = valid_time.friendly;
-            } else {
-                update.error = "Time should conform to format: hh:mm[am|pm]";
-                l.has_error = true;
-            }
-        }
-
-        let index = settings.selected_extension;
-        if (index != undefined) {
-            let details = installer.get_details(index);
+        if (name !== undefined) {
+            let details = installer.get_details(name);
 
             if (details.description) {
                 extension.title = details.description;
@@ -176,14 +191,14 @@ function makelayout(settings) {
                 extension.title = "(no description)";
             }
 
-            const version = installer.get_status(index).version;
+            const version = installer.get_status(name).version;
             status.title = (version ? "INSTALLED: version " + version : "NOT INSTALLED")
 
-            if (is_pending(index)) {
+            if (is_pending(name)) {
                 action.values.push({ title: "Revert Action", value: ACTION_NO_CHANGE });
             } else {
                 const action_strings = ['Install', 'Update', 'Uninstall', 'Start', 'Restart', 'Stop'];
-                const actions = installer.get_actions(index);
+                const actions = installer.get_actions(name);
 
                 for (let i = 0; i < actions.length; i++) {
                     action.values.push({ title: action_strings[actions[i] - 1], value: actions[i] + 1 });
@@ -197,47 +212,37 @@ function makelayout(settings) {
             extension.items.push(status);
             extension.items.push(action);
         }
-
-        l.layout.push(global);
-        l.layout.push(selector);
-        l.layout.push(extension);
-
-        l.layout.push({
-            type:    "group",
-            title:   "[PENDING ACTIONS]",
-            items:   [{
-                type : "label",
-                title: get_pending_actions_string()
-            }]
-        });
-    } else {
-        l.layout.push({
-            type:    "label",
-            title:   "No repository found"
-        });
     }
+
+    l.layout.push(global);
+    l.layout.push(category);
+    l.layout.push(selector);
+    l.layout.push(extension);
+
+    l.layout.push({
+        type:    "group",
+        title:   "[PENDING ACTIONS]",
+        items:   [{
+            type : "label",
+            title: get_pending_actions_string()
+        }]
+    });
 
     return l;
 }
 
-function is_pending(repos_index) {
-    for (let index in pending_actions) {
-        if (index == repos_index) {
-            return true;
-        }
-    }
-
-    return false;
+function is_pending(name) {
+    return pending_actions[name];
 }
 
 function update_pending_actions(settings) {
-    let repos_index = settings.selected_extension;
+    let name = settings.selected_extension;
     let action = settings.action;
 
     if (action) {
         if (action == ACTION_NO_CHANGE) {
             // Remove action from pending_actions
-            delete pending_actions["" + repos_index];
+            delete pending_actions[name];
         } else {
             let friendly;
 
@@ -263,14 +268,14 @@ function update_pending_actions(settings) {
                     break;
             }
 
-            friendly += installer.get_details(repos_index).display_name;
+            friendly += installer.get_details(name).display_name;
 
             let pending_action = {
                 action: action,
                 friendly: friendly
             };
 
-            pending_actions["" + repos_index] = pending_action;
+            pending_actions[name] = pending_action;
         }
 
         // Cleanup action
@@ -281,8 +286,8 @@ function update_pending_actions(settings) {
 function get_pending_actions_string() {
     let pending_actions_string = ""
 
-    for (let repos_index in pending_actions) {
-        pending_actions_string += pending_actions[repos_index].friendly + "\n";
+    for (let name in pending_actions) {
+        pending_actions_string += pending_actions[name].friendly + "\n";
     }
 
     if (!pending_actions_string) {
@@ -293,26 +298,26 @@ function get_pending_actions_string() {
 }
 
 function perform_pending_actions() {
-    for (let repos_index in pending_actions) {
+    for (let name in pending_actions) {
 
-        switch (pending_actions[repos_index].action) {
+        switch (pending_actions[name].action) {
             case ACTION_INSTALL:
-                installer.install(+repos_index);
+                installer.install(name);
                 break;
             case ACTION_UPDATE:
-                installer.update(+repos_index);
+                installer.update(name);
                 break;
             case ACTION_UNINSTALL:
-                installer.uninstall(+repos_index);
+                installer.uninstall(name);
                 break;
             case ACTION_START:
-                installer.start(+repos_index);
+                installer.start(name);
                 break;
             case ACTION_RESTART:
-                installer.restart(+repos_index);
+                installer.restart(name);
                 break;
             case ACTION_STOP:
-                installer.stop(+repos_index);
+                installer.stop(name);
                 break;
         }
     }
