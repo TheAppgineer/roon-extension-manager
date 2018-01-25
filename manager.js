@@ -76,9 +76,6 @@ var svc_settings = new RoonApiSettings(roon, {
         req.send_complete(l.has_error ? "NotValid" : "Success", { settings: l });
 
         if (!isdryrun && !l.has_error) {
-            delete l.values.selected_category;
-            delete l.values.selected_extension;
-
             ext_settings = l.values;
             svc_settings.update_settings(l);
             roon.save_config("settings", ext_settings);
@@ -180,7 +177,14 @@ function makelayout(settings) {
 
         selector.title = '[' + category_list[category_index].title.toUpperCase() + ' EXTENSIONS]';
 
-        let name = settings.selected_extension;
+        let name = undefined;
+
+        for (let i = 0; i < extension_list.length; i++) {
+            if (extension_list[i].value == settings.selected_extension) {
+                name = settings.selected_extension;
+                break;
+            }
+        }
 
         if (name !== undefined) {
             let details = installer.get_details(name);
@@ -211,6 +215,8 @@ function makelayout(settings) {
             });
             extension.items.push(status);
             extension.items.push(action);
+        } else {
+            settings.selected_extension = undefined;
         }
     }
 
