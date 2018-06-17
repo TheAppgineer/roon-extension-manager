@@ -4,7 +4,10 @@ Roon Extension for managing Roon Extensions.
 
 ------------
 
-## Installation
+## OS Specific Installation
+OS specific installation instructions can be found on the [project Wiki](https://github.com/TheAppgineer/roon-extension-manager/wiki/Installation).
+
+## Manual Installation
 
 1. Install Node.js from https://nodejs.org.
 
