@@ -20,13 +20,17 @@ var RoonApi               = require("node-roon-api"),
     ApiTimeInput          = require('node-api-time-input'),
     ApiExtensionInstaller = require('node-api-extension-installer');
 
-const ACTION_NO_CHANGE = 1;
-const ACTION_INSTALL = 2;
-const ACTION_UPDATE = 3;
-const ACTION_UNINSTALL = 4;
-const ACTION_START = 5;
-const ACTION_RESTART = 6;
-const ACTION_STOP = 7;
+const ACTION_NO_CHANGE = 0;
+
+const action_strings = [
+    'Revert Action',
+    'Install',
+    'Update',
+    'Uninstall',
+    'Start',
+    'Restart',
+    'Stop'
+];
 
 var core;
 var pending_actions = {};
@@ -40,7 +44,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.6.0",
+    display_version:     "0.8.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
@@ -151,7 +155,7 @@ function makelayout(settings) {
     let action = {
         type:    "dropdown",
         title:   "Action",
-        values:  [{ title: "(select action)", value: undefined  }],
+        values:  [{ title: "(select action)", value: undefined }],
         setting: "action"
     }
 
@@ -199,13 +203,12 @@ function makelayout(settings) {
             status.title = (version ? "INSTALLED: version " + version : "NOT INSTALLED")
 
             if (is_pending(name)) {
-                action.values.push({ title: "Revert Action", value: ACTION_NO_CHANGE });
+                action.values.push({ title: action_strings[ACTION_NO_CHANGE], value: ACTION_NO_CHANGE });
             } else {
-                const action_strings = ['Install', 'Update', 'Uninstall', 'Start', 'Restart', 'Stop'];
                 const actions = installer.get_actions(name);
 
                 for (let i = 0; i < actions.length; i++) {
-                    action.values.push({ title: action_strings[actions[i] - 1], value: actions[i] + 1 });
+                    action.values.push({ title: action_strings[actions[i]], value: actions[i] });
                 }
             }
 
@@ -245,37 +248,13 @@ function update_pending_actions(settings) {
     let name = settings.selected_extension;
     let action = settings.action;
 
-    if (action) {
-        if (action == ACTION_NO_CHANGE) {
+    if (action !== undefined) {
+        if (action === ACTION_NO_CHANGE) {
             // Remove action from pending_actions
             delete pending_actions[name];
         } else {
-            let friendly;
-
             // Update pending actions
-            switch (action) {
-                case ACTION_INSTALL:
-                    friendly = "Install ";
-                    break;
-                case ACTION_UPDATE:
-                    friendly = "Update ";
-                    break;
-                case ACTION_UNINSTALL:
-                    friendly = "Uninstall ";
-                    break;
-                case ACTION_START:
-                    friendly = "Start ";
-                    break;
-                case ACTION_RESTART:
-                    friendly = "Restart ";
-                    break;
-                case ACTION_STOP:
-                    friendly = "Stop ";
-                    break;
-            }
-
-            friendly += installer.get_details(name).display_name;
-
+            let friendly = action_strings[action] + " " + installer.get_details(name).display_name;
             let pending_action = {
                 action: action,
                 friendly: friendly
@@ -304,28 +283,8 @@ function get_pending_actions_string() {
 }
 
 function perform_pending_actions() {
-    for (let name in pending_actions) {
-
-        switch (pending_actions[name].action) {
-            case ACTION_INSTALL:
-                installer.install(name);
-                break;
-            case ACTION_UPDATE:
-                installer.update(name);
-                break;
-            case ACTION_UNINSTALL:
-                installer.uninstall(name);
-                break;
-            case ACTION_START:
-                installer.start(name);
-                break;
-            case ACTION_RESTART:
-                installer.restart(name);
-                break;
-            case ACTION_STOP:
-                installer.stop(name);
-                break;
-        }
+    for (const name in pending_actions) {
+        installer.perform_action(pending_actions[name].action, name);
     }
 }
 
