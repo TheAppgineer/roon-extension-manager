@@ -165,13 +165,13 @@ function makelayout(settings) {
         setting: "action"
     }
 
-    let features = installer.get_features();
+    const features = installer.get_features();
 
-    if (features.auto_update != 'off') {
+    if (!features || features.auto_update != 'off') {
         global.items.push(update);
     }
 
-    if (features.log_mode != 'off') {
+    if (!features || features.log_mode != 'off') {
         if (settings.logging === undefined) {
             settings.logging = false;
         }
