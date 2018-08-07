@@ -22,20 +22,11 @@ var RoonApi               = require("node-roon-api"),
 
 const ACTION_NO_CHANGE = 0;
 
-const action_strings = [
-    'Revert Action',
-    'Install',
-    'Update',
-    'Uninstall',
-    'Start',
-    'Restart',
-    'Stop'
-];
-
 var core;
 var pending_actions = {};
 var category_list = [];
 var extension_list = [];
+var action_list = [];
 var timeout_id = null;
 var watchdog_timer_id = null;
 var last_message;
@@ -44,7 +35,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.8.0",
+    display_version:     "0.0.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
@@ -65,7 +56,8 @@ var roon = new RoonApi({
 });
 
 var ext_settings = roon.load_config("settings") || {
-    update_time: "02:00"
+    update_time: "02:00",
+    logging:     false
 };
 
 var svc_settings = new RoonApiSettings(roon, {
@@ -84,6 +76,7 @@ var svc_settings = new RoonApiSettings(roon, {
             svc_settings.update_settings(l);
             roon.save_config("settings", ext_settings);
 
+            installer.set_log_state(ext_settings.logging);
             set_update_timer();
             perform_pending_actions();
         }
@@ -104,12 +97,16 @@ var installer = new ApiExtensionInstaller({
         console.log(updates);
     },
     status_changed: function(message, is_error) {
-        last_message = message;
-        last_is_error = is_error;
+        if (core == undefined) {
+            roon.start_discovery();
+        }
 
         svc_status.set_status(message, is_error);
+
+        last_message = message;
+        last_is_error = is_error;
     }
-}, process.argv[2], process.argv[3] != 'service');
+}, ext_settings.logging, process.argv[3] != 'service');
 
 roon.init_services({
     provided_services: [ svc_settings, svc_status ]
@@ -132,15 +129,24 @@ function makelayout(settings) {
         title:   "Check for updates @ [hh:mm]",
         setting: "update_time"
     };
+    const logging = {
+        type:    "dropdown",
+        title:   "Logging (change forces restart)",
+        values:  [
+            { title: "Disabled", value: false },
+            { title: "Enabled",  value: true  }
+        ],
+        setting: "logging"
+    };
     let category = {
         type:    "dropdown",
-        title:   "[CATEGORY]",
+        title:   "Category",
         values:  [{ title: "(select category)", value: undefined }],
         setting: "selected_category"
     };
     let selector = {
         type:    "dropdown",
-        title:   "[EXTENSION]",
+        title:   "Extension",
         values:  [{ title: "(select extension)", value: undefined }],
         setting: "selected_extension"
     };
@@ -149,7 +155,7 @@ function makelayout(settings) {
         title:   "(no extension selected)",
         items:   [],
     };
-    let status = {
+    let status_string = {
         type:    "label",
     };
     let action = {
@@ -159,7 +165,19 @@ function makelayout(settings) {
         setting: "action"
     }
 
-    global.items.push(update);
+    let features = installer.get_features();
+
+    if (features.auto_update != 'off') {
+        global.items.push(update);
+    }
+
+    if (features.log_mode != 'off') {
+        if (settings.logging === undefined) {
+            settings.logging = false;
+        }
+
+        global.items.push(logging);
+    }
 
     if (settings.update_time) {
         let valid_time = timer.validate_time_string(settings.update_time);
@@ -178,8 +196,7 @@ function makelayout(settings) {
     if (category_index !== undefined) {
         extension_list = installer.get_extensions_by_category(category_index);
         selector.values = selector.values.concat(extension_list);
-
-        selector.title = '[' + category_list[category_index].title.toUpperCase() + ' EXTENSIONS]';
+        selector.title = category_list[category_index].title + ' Extension';
 
         let name = undefined;
 
@@ -191,6 +208,7 @@ function makelayout(settings) {
         }
 
         if (name !== undefined) {
+            const status = installer.get_status(name);
             let details = installer.get_details(name);
 
             if (details.description) {
@@ -199,34 +217,40 @@ function makelayout(settings) {
                 extension.title = "(no description)";
             }
 
-            const version = installer.get_status(name).version;
-            status.title = (version ? "INSTALLED: version " + version : "NOT INSTALLED")
+            status_string.title  = status.state.toUpperCase();
+            status_string.title += (status.logging ? " (with logging)" : "");
+            status_string.title += (status.version ? ": version " + status.version : "");
 
             if (is_pending(name)) {
-                action.values.push({ title: action_strings[ACTION_NO_CHANGE], value: ACTION_NO_CHANGE });
+                action_list = [{ title: 'Revert Action', value: ACTION_NO_CHANGE }];
             } else {
-                const actions = installer.get_actions(name);
-
-                for (let i = 0; i < actions.length; i++) {
-                    action.values.push({ title: action_strings[actions[i]], value: actions[i] });
-                }
+                action_list = installer.get_actions(name);
             }
+
+            action.values = action.values.concat(action_list);
 
             extension.items.push({
                 type: "label",
                 title: "by: " + details.author
             });
-            extension.items.push(status);
-            extension.items.push(action);
+            extension.items.push(status_string);
+            if (action.values.length > 1) {
+                extension.items.push(action);
+            }
         } else {
             settings.selected_extension = undefined;
         }
     }
 
-    l.layout.push(global);
-    l.layout.push(category);
-    l.layout.push(selector);
-    l.layout.push(extension);
+    if (global.items.length) {
+        l.layout.push(global);
+    }
+
+    l.layout.push({
+        type:  "group",
+        title: "[EXTENSION]",
+        items: [category, selector, extension]
+    });
 
     l.layout.push({
         type:    "group",
@@ -254,13 +278,18 @@ function update_pending_actions(settings) {
             delete pending_actions[name];
         } else {
             // Update pending actions
-            let friendly = action_strings[action] + " " + installer.get_details(name).display_name;
-            let pending_action = {
-                action: action,
-                friendly: friendly
-            };
+            for (let i = 0; i < action_list.length; i++) {
+                if (action_list[i].value === action) {
+                    let friendly = action_list[i].title + " " + installer.get_details(name).display_name;
 
-            pending_actions[name] = pending_action;
+                    pending_actions[name] = {
+                        action: action,
+                        friendly: friendly
+                    };
+
+                    break;
+                }
+            }
         }
 
         // Cleanup action
@@ -367,4 +396,3 @@ function init() {
 }
 
 init();
-roon.start_discovery();

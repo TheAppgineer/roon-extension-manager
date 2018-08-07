@@ -4,7 +4,10 @@ Roon Extension for managing Roon Extensions.
 
 ------------
 
-## Installation
+## OS Specific Installation
+OS specific installation instructions can be found on the [project Wiki](https://github.com/TheAppgineer/roon-extension-manager/wiki/Installation).
+
+## Manual Installation
 
 1. Install Node.js from https://nodejs.org.
 
@@ -51,7 +54,7 @@ Roon Extension for managing Roon Extensions.
 1. Run it!
     ```
     cd ~/.RoonExtensions/lib/node_modules/roon-extension-manager
-    node start.js
+    node .
     ```
 
     The extension should appear in Roon now. See Settings->Extensions. If you have multiple Roon Cores on the network, all of them should see it but only one can connect at a time.
