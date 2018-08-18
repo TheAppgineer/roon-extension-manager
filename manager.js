@@ -190,10 +190,10 @@ function makelayout(settings) {
         }
     }
 
-    let category_index = settings.selected_category;
+    const category_index = settings.selected_category;
     category.values = category.values.concat(category_list);
 
-    if (category_index !== undefined) {
+    if (category_index !== undefined && category_index < category_list.length) {
         extension_list = installer.get_extensions_by_category(category_index);
         selector.values = selector.values.concat(extension_list);
         selector.title = category_list[category_index].title + ' Extension';
@@ -240,6 +240,9 @@ function makelayout(settings) {
         } else {
             settings.selected_extension = undefined;
         }
+    } else {
+        settings.selected_category = undefined;
+        settings.selected_extension = undefined;
     }
 
     if (global.items.length) {
