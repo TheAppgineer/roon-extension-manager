@@ -106,7 +106,7 @@ var installer = new ApiExtensionInstaller({
         last_message = message;
         last_is_error = is_error;
     }
-}, ext_settings.logging, process.argv[3] != 'service');
+}, ext_settings.logging, true);
 
 roon.init_services({
     provided_services: [ svc_settings, svc_status ]
@@ -120,9 +120,10 @@ function makelayout(settings) {
     };
 
     let global = {
-        type:    "group",
-        title:   "[GLOBAL SETTINGS]",
-        items:   []
+        type:        "group",
+        title:       "[GLOBAL SETTINGS]",
+        collapsable: true,
+        items:       []
     };
     let update = {
         type:    "string",
