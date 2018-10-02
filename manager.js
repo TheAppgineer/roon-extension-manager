@@ -28,6 +28,7 @@ var category_list = [];
 var extension_list = [];
 var action_list = [];
 var timeout_id = null;
+var ping_timer_id = null;
 var watchdog_timer_id = null;
 var last_message;
 var last_is_error;
@@ -42,16 +43,17 @@ var roon = new RoonApi({
 
     core_paired: function(core_) {
         core = core_;
-        console.log("Core paired.");
+        set_status("Core paired", false);
 
-        setup_watchdog_timer();
+        clear_watchdog_timer();
+        setup_ping_timer();
     },
     core_unpaired: function(core_) {
         core = undefined;
         console.log("Core unpaired!");
 
-        clear_watchdog_timer();
-        installer.restart_manager();
+        clear_ping_timer();
+        setup_watchdog_timer();
     }
 });
 
@@ -101,10 +103,7 @@ var installer = new ApiExtensionInstaller({
             roon.start_discovery();
         }
 
-        svc_status.set_status(message, is_error);
-
-        last_message = message;
-        last_is_error = is_error;
+        set_status(message, is_error);
     }
 }, ext_settings.logging, true);
 
@@ -372,21 +371,40 @@ function timer_timed_out() {
     set_update_timer();
 }
 
-function setup_watchdog_timer() {
-    clear_watchdog_timer();
+function setup_ping_timer() {
+    clear_ping_timer();
 
-    watchdog_timer_id = setInterval(kick_watchdog, 60000);
+    ping_timer_id = setInterval(ping, 60000);
 }
 
-function kick_watchdog() {
+function ping() {
     // Check if the Roon API is still running fine by refreshing the status message
     svc_status.set_status(last_message, last_is_error);
 }
 
+function clear_ping_timer() {
+    if (ping_timer_id) {
+        clearInterval(ping_timer_id);
+    }
+}
+
+function setup_watchdog_timer() {
+    clear_watchdog_timer();
+
+    watchdog_timer_id = setTimeout(installer.restart_manager, 30000);
+}
+
 function clear_watchdog_timer() {
     if (watchdog_timer_id) {
-        clearInterval(watchdog_timer_id);
+        clearTimeout(watchdog_timer_id);
     }
+}
+
+function set_status(message, is_error) {
+    svc_status.set_status(message, is_error);
+
+    last_message = message;
+    last_is_error = is_error;
 }
 
 function init() {
