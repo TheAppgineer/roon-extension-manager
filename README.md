@@ -54,7 +54,7 @@ OS specific installation instructions can be found on the [project Wiki](https:/
 1. Run it!
     ```
     cd ~/.RoonExtensions/lib/node_modules/roon-extension-manager
-    node start.js
+    node .
     ```
 
     The extension should appear in Roon now. See Settings->Extensions. If you have multiple Roon Cores on the network, all of them should see it but only one can connect at a time.
