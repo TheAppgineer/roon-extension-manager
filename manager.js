@@ -207,7 +207,17 @@ function makelayout(settings) {
             const status  = installer.get_status(name);
             const details = installer.get_details(name);
             const actions = installer.get_actions(name);
+            let author = {
+                type: "label"
+            };
 
+            if (details.packager) {
+                author.title  = "Developed by: " + details.author;
+                author.title += "\nPackaged by:   " + details.packager;
+            } else {
+                author.title = "by: " + details.author;
+            }
+            
             if (details.description) {
                 extension.title = details.description;
             } else {
@@ -226,11 +236,9 @@ function makelayout(settings) {
 
             action.values = action.values.concat(action_list);
 
-            extension.items.push({
-                type: "label",
-                title: "by: " + details.author
-            });
+            extension.items.push(author);
             extension.items.push(status_string);
+            
             if (action.values.length > 1) {
                 extension.items.push(action);
             }
@@ -284,6 +292,15 @@ function create_options_group(options) {
                 type:    "string",
                 title:   options.env[var_name],
                 setting: "docker_env_" + var_name
+            });
+        }
+    }
+    if (options.devices) {
+        for (let i = 0; i < options.devices.length; i++) {
+            options_group.items.push({
+                type:    "string",
+                title:   options.devices[i],
+                setting: "docker_devices_" + i
             });
         }
     }
