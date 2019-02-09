@@ -227,6 +227,7 @@ function makelayout(settings) {
             status_string.title  = status.state.toUpperCase();
             status_string.title += (status.logging ? " (with logging)" : "");
             status_string.title += (status.version ? ": version " + status.version : "");
+            status_string.title += (status.tag ? ": tag " + status.tag : "");
 
             if (is_pending(name)) {
                 action_list = [{ title: 'Revert Action', value: ACTION_NO_CHANGE }];
