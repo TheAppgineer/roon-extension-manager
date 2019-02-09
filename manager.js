@@ -244,7 +244,7 @@ function makelayout(settings) {
                 extension.items.push(action);
             }
 
-            if (actions.options) {
+            if (!is_pending(name) && actions.options) {
                 extension.items.push(create_options_group(actions.options));
             }
         } else {
@@ -376,7 +376,8 @@ function update_pending_actions(settings) {
             }
         }
 
-        // Cleanup action
+        // Cleanup
+        remove_docker_options(settings);
         delete settings["action"];
     }
 }
