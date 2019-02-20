@@ -36,7 +36,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.8.1",
+    display_version:     "0.9.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
@@ -217,7 +217,7 @@ function makelayout(settings) {
             } else {
                 author.title = "by: " + details.author;
             }
-            
+
             if (details.description) {
                 extension.title = details.description;
             } else {
@@ -239,7 +239,7 @@ function makelayout(settings) {
 
             extension.items.push(author);
             extension.items.push(status_string);
-            
+
             if (action.values.length > 1) {
                 extension.items.push(action);
             }
