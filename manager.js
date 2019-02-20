@@ -1,4 +1,4 @@
-// Copyright 2017, 2018 The Appgineer
+// Copyright 2017, 2018, 2019 The Appgineer
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -74,6 +74,7 @@ var svc_settings = new RoonApiSettings(roon, {
         req.send_complete(l.has_error ? "NotValid" : "Success", { settings: l });
 
         if (!isdryrun && !l.has_error) {
+            remove_docker_options(l.values);
             ext_settings = l.values;
             svc_settings.update_settings(l);
             roon.save_config("settings", ext_settings);
@@ -92,20 +93,15 @@ var installer = new ApiExtensionInstaller({
     repository_changed: function(values) {
         category_list = values;
     },
-    installs_changed: function(installed) {
-        console.log(installed);
-    },
-    updates_changed: function(updates) {
-        console.log(updates);
-    },
     status_changed: function(message, is_error) {
-        if (core == undefined) {
+        if (core === undefined) {
+            core = null;
             roon.start_discovery();
         }
 
         set_status(message, is_error);
     }
-}, ext_settings.logging, true);
+}, ext_settings.logging, true, process.argv[2]);
 
 roon.init_services({
     provided_services: [ svc_settings, svc_status ]
@@ -208,9 +204,20 @@ function makelayout(settings) {
         }
 
         if (name !== undefined) {
-            const status = installer.get_status(name);
-            let details = installer.get_details(name);
+            const status  = installer.get_status(name);
+            const details = installer.get_details(name);
+            const actions = installer.get_actions(name);
+            let author = {
+                type: "label"
+            };
 
+            if (details.packager) {
+                author.title  = "Developed by: " + details.author;
+                author.title += "\nPackaged by:   " + details.packager;
+            } else {
+                author.title = "by: " + details.author;
+            }
+            
             if (details.description) {
                 extension.title = details.description;
             } else {
@@ -220,29 +227,34 @@ function makelayout(settings) {
             status_string.title  = status.state.toUpperCase();
             status_string.title += (status.logging ? " (with logging)" : "");
             status_string.title += (status.version ? ": version " + status.version : "");
+            status_string.title += (status.tag ? ": tag " + status.tag : "");
 
             if (is_pending(name)) {
                 action_list = [{ title: 'Revert Action', value: ACTION_NO_CHANGE }];
             } else {
-                action_list = installer.get_actions(name);
+                action_list = actions.actions;
             }
 
             action.values = action.values.concat(action_list);
 
-            extension.items.push({
-                type: "label",
-                title: "by: " + details.author
-            });
+            extension.items.push(author);
             extension.items.push(status_string);
+            
             if (action.values.length > 1) {
                 extension.items.push(action);
             }
+
+            if (!is_pending(name) && actions.options) {
+                extension.items.push(create_options_group(actions.options));
+            }
         } else {
             settings.selected_extension = undefined;
+            remove_docker_options(settings);
         }
     } else {
         settings.selected_category = undefined;
         settings.selected_extension = undefined;
+        remove_docker_options(settings);
     }
 
     if (global.items.length) {
@@ -267,13 +279,77 @@ function makelayout(settings) {
     return l;
 }
 
+function create_options_group(options) {
+    let options_group = {
+        type:    "group",
+        title:   "Docker Install Options",
+        collapsable: true,
+        items:   []
+    };
+
+    if (options.env) {
+        for (const var_name in options.env) {
+            options_group.items.push({
+                type:    "string",
+                title:   options.env[var_name],
+                setting: "docker_env_" + var_name
+            });
+        }
+    }
+    if (options.devices) {
+        for (let i = 0; i < options.devices.length; i++) {
+            options_group.items.push({
+                type:    "string",
+                title:   options.devices[i],
+                setting: "docker_devices_" + i
+            });
+        }
+    }
+
+    return options_group;
+}
+
+function get_docker_options(settings) {
+    let docker;
+
+    for (const key in settings) {
+        if (key.includes("docker_") && settings[key]) {
+            const split = key.split('_');
+
+            if (split.length > 2) {
+                const field = split[1];
+
+                if (!docker) {
+                    docker = {};
+                }
+                if (!docker[field]) {
+                    docker[field] = {};
+                }
+
+                docker[field][split[2]] = settings[key];
+            }
+        }
+    }
+
+    return docker;
+}
+
+function remove_docker_options(settings) {
+    for (const key in settings) {
+        if (key.includes("docker_")) {
+            delete settings[key];
+        }
+    }
+}
+
 function is_pending(name) {
     return pending_actions[name];
 }
 
 function update_pending_actions(settings) {
-    let name = settings.selected_extension;
-    let action = settings.action;
+    const name = settings.selected_extension;
+    const action = settings.action;
+    const options = get_docker_options(settings);
 
     if (action !== undefined) {
         if (action === ACTION_NO_CHANGE) {
@@ -285,9 +361,14 @@ function update_pending_actions(settings) {
                 if (action_list[i].value === action) {
                     let friendly = action_list[i].title + " " + installer.get_details(name).display_name;
 
+                    if (options) {
+                        friendly += ' (with options)';
+                    }
+
                     pending_actions[name] = {
-                        action: action,
-                        friendly: friendly
+                        action:   action,
+                        friendly: friendly,
+                        options:  options
                     };
 
                     break;
@@ -295,7 +376,8 @@ function update_pending_actions(settings) {
             }
         }
 
-        // Cleanup action
+        // Cleanup
+        remove_docker_options(settings);
         delete settings["action"];
     }
 }
@@ -316,7 +398,7 @@ function get_pending_actions_string() {
 
 function perform_pending_actions() {
     for (const name in pending_actions) {
-        installer.perform_action(pending_actions[name].action, name);
+        installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
     }
 }
 
