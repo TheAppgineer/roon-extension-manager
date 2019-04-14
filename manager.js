@@ -36,7 +36,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.9.5",
+    display_version:     "0.10.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
@@ -298,10 +298,23 @@ function create_options_group(options) {
     }
     if (options.devices) {
         for (let i = 0; i < options.devices.length; i++) {
+            const split = options.devices[i].split(':');
+
             options_group.items.push({
                 type:    "string",
-                title:   options.devices[i],
-                setting: "docker_devices_" + i
+                title:   split[1],
+                setting: "docker_devices_" + (split[0] == '' ? i : split[0])
+            });
+        }
+    }
+    if (options.binds) {
+        for (let i = 0; i < options.binds.length; i++) {
+            const split = options.binds[i].split(':');
+
+            options_group.items.push({
+                type:    "string",
+                title:   split[1],
+                setting: "docker_binds_" + (split[0] == '' ? i : split[0])
             });
         }
     }
@@ -326,7 +339,15 @@ function get_docker_options(settings) {
                     docker[field] = {};
                 }
 
-                docker[field][split[2]] = settings[key];
+                if (field == 'devices' || field == 'binds') {
+                    if (split[2].indexOf('/') == 0) {
+                        docker[field][settings[key]] = split.slice(2).join('_');
+                    } else {
+                        docker[field][settings[key]] = settings[key];
+                    }
+                } else {
+                    docker[field][split[2]] = settings[key];
+                }
             }
         }
     }
