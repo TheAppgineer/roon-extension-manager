@@ -36,7 +36,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.10.0",
+    display_version:     "0.10.1",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
@@ -327,6 +327,8 @@ function get_docker_options(settings) {
 
     for (const key in settings) {
         if (key.includes("docker_") && settings[key]) {
+            // This setting has to be passed on towards Docker
+            // It is in the form: docker_<field_type>_<field_name>
             const split = key.split('_');
 
             if (split.length > 2) {
@@ -341,10 +343,15 @@ function get_docker_options(settings) {
 
                 if (field == 'devices' || field == 'binds') {
                     if (split[2].indexOf('/') == 0) {
+                        // The set value contains the host path, the setting name contains the container path
                         docker[field][settings[key]] = split.slice(2).join('_');
                     } else {
+                        // one on one path mapping
                         docker[field][settings[key]] = settings[key];
                     }
+                } else if (field == 'env') {
+                    // Join all remaining segments to allow underscores in environment names
+                    docker[field][split.slice(2).join('_')] = settings[key];
                 } else {
                     docker[field][split[2]] = settings[key];
                 }
