@@ -22,6 +22,8 @@ var RoonApi               = require("node-roon-api"),
 
 const ACTION_NO_CHANGE = 0;
 
+const PORT = 2507;
+
 var core;
 var pending_actions = {};
 var category_list = [];
@@ -36,10 +38,10 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.10.1",
+    display_version:     "0.11.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
-    website:             'https://community.roonlabs.com/t/roon-extension-manager/26632',
+    website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
 
     core_paired: function(core_) {
         core = core_;
@@ -59,7 +61,7 @@ var roon = new RoonApi({
 
 var ext_settings = roon.load_config("settings") || {
     update_time: "02:00",
-    logging:     false
+    logging:     true
 };
 
 var svc_settings = new RoonApiSettings(roon, {
@@ -515,6 +517,53 @@ function set_status(message, is_error) {
 
     last_message = message;
     last_is_error = is_error;
+}
+
+var http = require('http');
+http.createServer(function(request, response) {
+    const fs = require('fs');
+    const contentType = 'application/gzip';
+
+    installer.get_logs_archive((file_path) => {
+        fs.readFile(file_path, (error, content) => {
+            if (error) {
+                if(error.code == 'ENOENT'){
+                    response.writeHead(404);
+                    response.end('File not found\n');
+                    response.end();
+                }
+                else {
+                    response.writeHead(500);
+                    response.end('An error occured: ' + error.code + '\n');
+                    response.end();
+                }
+
+                set_status('Error reading logs archive: ' + error.code + '\n', true);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': contentType });
+                response.end(content, 'utf-8');
+
+                set_status('Download request for logs archive processed\n', false);
+            }
+        });
+    });
+}).listen(PORT);
+
+function get_ip() {
+    const os = require('os');
+    let ifaces = os.networkInterfaces();
+    let ip_address;
+
+    for (const ifname in ifaces) {
+        ifaces[ifname].forEach(function (iface) {
+            if (iface.family == 'IPv4' && !iface.internal) {
+                ip_address = iface.address;
+            }
+        });
+    }
+
+    return ip_address;
 }
 
 function init() {
