@@ -38,14 +38,14 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.11.0",
+    display_version:     "0.11.1",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
 
     core_paired: function(core_) {
         core = core_;
-        set_status("Core paired", false);
+        last_is_error || set_status("Core paired", false);
 
         clear_watchdog_timer();
         setup_ping_timer();
