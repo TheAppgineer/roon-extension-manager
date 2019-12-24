@@ -24,38 +24,49 @@ const ACTION_NO_CHANGE = 0;
 
 const PORT = 2507;
 
-var core;
 var pending_actions = {};
 var category_list = [];
 var extension_list = [];
 var action_list = [];
 var timeout_id = null;
-var ping_timer_id = null;
-var watchdog_timer_id = null;
-var last_message;
-var last_is_error;
+var settings_subscriptions;
 
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.11.2",
+    display_version:     "0.11.3",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
 
-    core_paired: function(core_) {
-        core = core_;
-        last_is_error || set_status("Core paired", false);
+    core_found: function(core_) {
+        const on_message = core_.moo.transport.onmessage;
 
-        clear_watchdog_timer();
-        setup_ping_timer();
+        // Override the onmessage implementation to keep track of the Settings subscriptions
+        // This administration is used to ensure that only one Settings dialog can be active at a time
+        core_.moo.transport.onmessage = msg => {
+            if (msg.verb == 'REQUEST' && msg.service == 'com.roonlabs.settings:1') {
+                if (msg.name == 'subscribe_settings') {
+                    settings_subscriptions[msg.body.subscription_key] = core_.core_id;
+                } else if (msg.name == 'unsubscribe_settings') {
+                    delete settings_subscriptions[msg.body.subscription_key];
+                }
+            }
+
+            on_message(msg);
+        };
+        
+        console.log(core_.core_id, 'onmessage function overridden');
     },
-    core_unpaired: function(core_) {
-        core = undefined;
-        console.log("Core unpaired!");
-
-        clear_ping_timer();
-        setup_watchdog_timer();
+    core_lost: function(core_) {
+        // Remove Settings subscriptions of the lost core
+        for (const key in settings_subscriptions) {
+            if (settings_subscriptions[key] == core_.core_id) {
+                delete settings_subscriptions[key];
+            }
+        }
+        
+        console.log(core_.core_id, 'settings subscriptions cleared');
     }
 });
 
@@ -96,12 +107,12 @@ var installer = new ApiExtensionInstaller({
         category_list = values;
     },
     status_changed: function(message, is_error) {
-        if (core === undefined) {
-            core = null;
+        if (settings_subscriptions === undefined) {
+            settings_subscriptions = {};
             roon.start_discovery();
         }
 
-        set_status(message, is_error);
+        svc_status.set_status(message, is_error);
     }
 }, ext_settings.logging, true, process.argv[2]);
 
@@ -115,7 +126,6 @@ function makelayout(settings) {
         layout:    [],
         has_error: false
     };
-
     let global = {
         type:        "group",
         title:       "[GLOBAL SETTINGS]",
@@ -263,20 +273,31 @@ function makelayout(settings) {
         l.layout.push(global);
     }
 
-    l.layout.push({
-        type:  "group",
-        title: "[EXTENSION]",
-        items: [category, selector, extension]
-    });
+    if (Object.keys(settings_subscriptions).length == 1) {
+        l.layout.push({
+            type:  "group",
+            title: "[EXTENSION]",
+            items: [category, selector, extension]
+        });
 
-    l.layout.push({
-        type:    "group",
-        title:   "[PENDING ACTIONS]",
-        items:   [{
-            type : "label",
-            title: get_pending_actions_string()
-        }]
-    });
+        l.layout.push({
+            type:    "group",
+            title:   "[PENDING ACTIONS]",
+            items:   [{
+                type : "label",
+                title: get_pending_actions_string()
+            }]
+        });
+    } else {
+        global.collapsable = false;
+
+        l.layout.push({
+            type:  "group",
+            title: "The Settings dialog is already opened on another Roon Remote\n" +
+                   "Close the other Settings dialog first to prevent corrupted extensions",
+            items: []
+        });
+    }
 
     return l;
 }
@@ -415,7 +436,7 @@ function update_pending_actions(settings) {
 function get_pending_actions_string() {
     let pending_actions_string = ""
 
-    for (let name in pending_actions) {
+    for (const name in pending_actions) {
         pending_actions_string += pending_actions[name].friendly + "\n";
     }
 
@@ -483,42 +504,6 @@ function timer_timed_out() {
     set_update_timer();
 }
 
-function setup_ping_timer() {
-    clear_ping_timer();
-
-    ping_timer_id = setInterval(ping, 60000);
-}
-
-function ping() {
-    // Check if the Roon API is still running fine by refreshing the status message
-    svc_status.set_status(last_message, last_is_error);
-}
-
-function clear_ping_timer() {
-    if (ping_timer_id) {
-        clearInterval(ping_timer_id);
-    }
-}
-
-function setup_watchdog_timer() {
-    clear_watchdog_timer();
-
-    watchdog_timer_id = setTimeout(installer.restart_manager, 30000);
-}
-
-function clear_watchdog_timer() {
-    if (watchdog_timer_id) {
-        clearTimeout(watchdog_timer_id);
-    }
-}
-
-function set_status(message, is_error) {
-    svc_status.set_status(message, is_error);
-
-    last_message = message;
-    last_is_error = is_error;
-}
-
 var http = require('http');
 http.createServer(function(request, response) {
     const fs = require('fs');
@@ -538,13 +523,13 @@ http.createServer(function(request, response) {
                     response.end();
                 }
 
-                set_status('Error reading logs archive: ' + error.code + '\n', true);
+                svc_status.set_status('Error reading logs archive: ' + error.code, true);
             }
             else {
                 response.writeHead(200, { 'Content-Type': contentType });
                 response.end(content, 'utf-8');
 
-                set_status('Download request for logs archive processed\n', false);
+                svc_status.set_status('Download request for logs archive processed', false);
             }
         });
     });
@@ -552,18 +537,19 @@ http.createServer(function(request, response) {
 
 function get_ip() {
     const os = require('os');
-    let ifaces = os.networkInterfaces();
-    let ip_address;
+    const ifaces = os.networkInterfaces();
 
     for (const ifname in ifaces) {
-        ifaces[ifname].forEach(function (iface) {
-            if (iface.family == 'IPv4' && !iface.internal) {
-                ip_address = iface.address;
+        const iface = ifaces[ifname];
+
+        for (let i = 0; i < iface.length; i++) {
+            if (iface[i].family == 'IPv4' && !iface[i].internal) {
+                return iface[i].address;
             }
-        });
+        }
     }
 
-    return ip_address;
+    return undefined;
 }
 
 function init() {
