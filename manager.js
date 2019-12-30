@@ -29,6 +29,10 @@ var category_list = [];
 var extension_list = [];
 var action_list = [];
 var timeout_id = null;
+var ping_timer_id = null;
+var watchdog_timer_id = null;
+var last_message;
+var last_is_error;
 var settings_subscriptions;
 
 var roon = new RoonApi({
@@ -39,34 +43,42 @@ var roon = new RoonApi({
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
 
-    core_found: function(core_) {
-        const on_message = core_.moo.transport.onmessage;
+    core_found: function(core) {
+        const on_message = core.moo.transport.onmessage;
+
+        clear_watchdog_timer();
+        setup_ping_timer();
+        settings_subscriptions[core.core_id] = [];
 
         // Override the onmessage implementation to keep track of the Settings subscriptions
         // This administration is used to ensure that only one Settings dialog can be active at a time
-        core_.moo.transport.onmessage = msg => {
+        core.moo.transport.onmessage = msg => {
             if (msg.verb == 'REQUEST' && msg.service == 'com.roonlabs.settings:1') {
                 if (msg.name == 'subscribe_settings') {
-                    settings_subscriptions[msg.body.subscription_key] = core_.core_id;
+                    settings_subscriptions[core.core_id].push(msg.body.subscription_key);
                 } else if (msg.name == 'unsubscribe_settings') {
-                    delete settings_subscriptions[msg.body.subscription_key];
+                    const index = settings_subscriptions[core.core_id].indexOf(msg.body.subscription_key);
+
+                    settings_subscriptions[core.core_id].splice(index, 1);
                 }
             }
 
             on_message(msg);
         };
         
-        console.log(core_.core_id, 'onmessage function overridden');
+        console.log(core.core_id, 'onmessage function overridden');
     },
-    core_lost: function(core_) {
+    core_lost: function(core) {
         // Remove Settings subscriptions of the lost core
-        for (const key in settings_subscriptions) {
-            if (settings_subscriptions[key] == core_.core_id) {
-                delete settings_subscriptions[key];
-            }
-        }
+        delete settings_subscriptions[core.core_id];
         
-        console.log(core_.core_id, 'settings subscriptions cleared');
+        console.log(core.core_id, 'settings subscriptions cleared');
+
+        if (Object.keys(settings_subscriptions).length == 0) {
+            // All cores gone
+            clear_ping_timer();
+            setup_watchdog_timer();
+        }
     }
 });
 
@@ -112,7 +124,7 @@ var installer = new ApiExtensionInstaller({
             roon.start_discovery();
         }
 
-        svc_status.set_status(message, is_error);
+        set_status(message, is_error);
     }
 }, ext_settings.logging, true, process.argv[2]);
 
@@ -273,7 +285,12 @@ function makelayout(settings) {
         l.layout.push(global);
     }
 
-    if (Object.keys(settings_subscriptions).length == 1) {
+    let count = 0;
+    for (const core_id in settings_subscriptions) {
+        count += settings_subscriptions[core_id].length;
+    }
+
+    if (count == 1) {
         l.layout.push({
             type:  "group",
             title: "[EXTENSION]",
@@ -504,6 +521,42 @@ function timer_timed_out() {
     set_update_timer();
 }
 
+function setup_ping_timer() {
+    if (!ping_timer_id) {
+        ping_timer_id = setInterval(ping, 60000);
+    }
+}
+
+function ping() {
+    // Check if the Roon API is still running fine by refreshing the status message
+    svc_status.set_status(last_message, last_is_error);
+}
+
+function clear_ping_timer() {
+    if (ping_timer_id) {
+        clearInterval(ping_timer_id);
+    }
+}
+
+function setup_watchdog_timer() {
+    clear_watchdog_timer();
+
+    watchdog_timer_id = setTimeout(installer.restart_manager, 30000);
+}
+
+function clear_watchdog_timer() {
+    if (watchdog_timer_id) {
+        clearTimeout(watchdog_timer_id);
+    }
+}
+
+function set_status(message, is_error) {
+    svc_status.set_status(message, is_error);
+
+    last_message = message;
+    last_is_error = is_error;
+}
+
 var http = require('http');
 http.createServer(function(request, response) {
     const fs = require('fs');
@@ -523,13 +576,13 @@ http.createServer(function(request, response) {
                     response.end();
                 }
 
-                svc_status.set_status('Error reading logs archive: ' + error.code, true);
+                set_status('Error reading logs archive: ' + error.code, true);
             }
             else {
                 response.writeHead(200, { 'Content-Type': contentType });
                 response.end(content, 'utf-8');
 
-                svc_status.set_status('Download request for logs archive processed', false);
+                set_status('Download request for logs archive processed', false);
             }
         });
     });
