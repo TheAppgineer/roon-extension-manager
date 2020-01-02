@@ -33,7 +33,6 @@ var ping_timer_id = null;
 var watchdog_timer_id = null;
 var last_message;
 var last_is_error;
-var settings_subscriptions;
 
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
@@ -43,42 +42,13 @@ var roon = new RoonApi({
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
 
-    core_found: function(core) {
-        const on_message = core.moo.transport.onmessage;
-
+    core_found: function() {
         clear_watchdog_timer();
         setup_ping_timer();
-        settings_subscriptions[core.core_id] = [];
-
-        // Override the onmessage implementation to keep track of the Settings subscriptions
-        // This administration is used to ensure that only one Settings dialog can be active at a time
-        core.moo.transport.onmessage = msg => {
-            if (msg.verb == 'REQUEST' && msg.service == 'com.roonlabs.settings:1') {
-                if (msg.name == 'subscribe_settings') {
-                    settings_subscriptions[core.core_id].push(msg.body.subscription_key);
-                } else if (msg.name == 'unsubscribe_settings') {
-                    const index = settings_subscriptions[core.core_id].indexOf(msg.body.subscription_key);
-
-                    settings_subscriptions[core.core_id].splice(index, 1);
-                }
-            }
-
-            on_message(msg);
-        };
-        
-        console.log(core.core_id, 'onmessage function overridden');
     },
-    core_lost: function(core) {
-        // Remove Settings subscriptions of the lost core
-        delete settings_subscriptions[core.core_id];
-        
-        console.log(core.core_id, 'settings subscriptions cleared');
-
-        if (Object.keys(settings_subscriptions).length == 0) {
-            // All cores gone
-            clear_ping_timer();
-            setup_watchdog_timer();
-        }
+    core_lost: function() {
+        clear_ping_timer();
+        setup_watchdog_timer();
     }
 });
 
@@ -104,9 +74,18 @@ var svc_settings = new RoonApiSettings(roon, {
             svc_settings.update_settings(l);
             roon.save_config("settings", ext_settings);
 
-            installer.set_log_state(ext_settings.logging);
             set_update_timer();
             perform_pending_actions();
+
+            if (installer.is_idle()) {
+                installer.set_on_activity_changed();
+                installer.set_log_state(ext_settings.logging);
+            } else {
+                installer.set_on_activity_changed(() => {
+                    installer.set_on_activity_changed();
+                    installer.set_log_state(ext_settings.logging);
+                });
+            }
         }
     }
 });
@@ -115,15 +94,13 @@ var svc_status = new RoonApiStatus(roon);
 var timer = new ApiTimeInput();
 
 var installer = new ApiExtensionInstaller({
+    started: function() {
+        roon.start_discovery();
+    },
     repository_changed: function(values) {
         category_list = values;
     },
     status_changed: function(message, is_error) {
-        if (settings_subscriptions === undefined) {
-            settings_subscriptions = {};
-            roon.start_discovery();
-        }
-
         set_status(message, is_error);
     }
 }, ext_settings.logging, true, process.argv[2]);
@@ -173,19 +150,23 @@ function makelayout(settings) {
     let extension = {
         type:    "group",
         title:   "(no extension selected)",
-        items:   [],
+        items:   []
     };
     let status_string = {
-        type:    "label",
+        type:    "label"
     };
     let action = {
         type:    "dropdown",
         title:   "Action",
         values:  [{ title: "(select action)", value: undefined }],
         setting: "action"
-    }
+    };
 
     const features = installer.get_features();
+
+    installer.set_on_activity_changed(() => {
+        svc_settings.update_settings(l);
+    });
 
     if (!features || features.auto_update != 'off') {
         global.items.push(update);
@@ -253,20 +234,21 @@ function makelayout(settings) {
             status_string.title += (status.version ? ": version " + status.version : "");
             status_string.title += (status.tag ? ": tag " + status.tag : "");
 
-            if (is_pending(name)) {
-                action_list = [{ title: 'Revert Action', value: ACTION_NO_CHANGE }];
-            } else {
-                action_list = actions.actions;
-            }
+            if (installer.is_idle(name)) {
+                if (is_pending(name)) {
+                    action_list = [{ title: 'Revert Action', value: ACTION_NO_CHANGE }];
+                } else {
+                    action_list = actions.actions;
+                }
 
-            action.values = action.values.concat(action_list);
+                action.values = action.values.concat(action_list);
+            } else {
+                action.values[0].title = '(in progress...)';
+            }
 
             extension.items.push(author);
             extension.items.push(status_string);
-
-            if (action.values.length > 1) {
-                extension.items.push(action);
-            }
+            extension.items.push(action);
 
             if (!is_pending(name) && actions.options) {
                 extension.items.push(create_options_group(actions.options));
@@ -285,36 +267,20 @@ function makelayout(settings) {
         l.layout.push(global);
     }
 
-    let count = 0;
-    for (const core_id in settings_subscriptions) {
-        count += settings_subscriptions[core_id].length;
-    }
+    l.layout.push({
+        type:  "group",
+        title: "[EXTENSION]",
+        items: [category, selector, extension]
+    });
 
-    if (count == 1) {
-        l.layout.push({
-            type:  "group",
-            title: "[EXTENSION]",
-            items: [category, selector, extension]
-        });
-
-        l.layout.push({
-            type:    "group",
-            title:   "[PENDING ACTIONS]",
-            items:   [{
-                type : "label",
-                title: get_pending_actions_string()
-            }]
-        });
-    } else {
-        global.collapsable = false;
-
-        l.layout.push({
-            type:  "group",
-            title: "The Settings dialog is already opened on another Roon Remote\n" +
-                   "Close the other Settings dialog first to prevent corrupted extensions",
-            items: []
-        });
-    }
+    l.layout.push({
+        type:    "group",
+        title:   "[PENDING ACTIONS]",
+        items:   [{
+            type : "label",
+            title: get_pending_actions_string()
+        }]
+    });
 
     return l;
 }
@@ -467,6 +433,9 @@ function get_pending_actions_string() {
 function perform_pending_actions() {
     for (const name in pending_actions) {
         installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
+        
+        // Consume action
+        delete pending_actions[name];
     }
 }
 
