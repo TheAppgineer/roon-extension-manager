@@ -1,4 +1,4 @@
-// Copyright 2017, 2018, 2019 The Appgineer
+// Copyright 2017, 2018, 2019, 2020 The Appgineer
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,16 +18,14 @@ var RoonApi               = require("node-roon-api"),
     RoonApiSettings       = require('node-roon-api-settings'),
     RoonApiStatus         = require('node-roon-api-status'),
     ApiTimeInput          = require('node-api-time-input'),
-    ApiExtensionInstaller = require('node-api-extension-installer');
+    ApiExtensionInstaller = require('node-api-extension-installer'),
+    WebInterface          = require('./web-interface');
 
 const ACTION_NO_CHANGE = 0;
 
 const PORT = 2507;
 
-var pending_actions = {};
 var category_list = [];
-var extension_list = [];
-var action_list = [];
 var timeout_id = null;
 var ping_timer_id = null;
 var watchdog_timer_id = null;
@@ -37,10 +35,10 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.11.4",
+    display_version:     "0.12.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
-    website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
+    website:             `http://${get_ip()}:${PORT}`,
 
     core_found: function() {
         clear_watchdog_timer();
@@ -59,36 +57,43 @@ var ext_settings = roon.load_config("settings") || {
 
 var svc_settings = new RoonApiSettings(roon, {
     get_settings: function(cb) {
-        pending_actions = {};           // Start off with a clean list
-        cb(makelayout(ext_settings));
+        cb(makelayout(ext_settings, true));
     },
-    save_settings: function(req, isdryrun, settings) {
-        update_pending_actions(settings.values);
+    save_settings
+});
 
-        let l = makelayout(settings.values);
+function save_settings(req, isdryrun, settings) {
+    update_pending_actions(settings.values);
+
+    let l = makelayout(settings.values);
+
+    if (req) {
         req.send_complete(l.has_error ? "NotValid" : "Success", { settings: l });
+    } else if (isdryrun) {
+        return l;
+    }
 
-        if (!isdryrun && !l.has_error) {
-            remove_docker_options(l.values);
-            ext_settings = l.values;
-            svc_settings.update_settings(l);
-            roon.save_config("settings", ext_settings);
+    if (!isdryrun && !l.has_error) {
+        remove_docker_options(l.values);
+        perform_pending_actions(l.values);
 
-            set_update_timer();
-            perform_pending_actions();
+        ext_settings = l.values;
+        svc_settings.update_settings(l);
+        roon.save_config("settings", ext_settings);
 
-            if (installer.is_idle()) {
+        set_update_timer();
+
+        if (installer.is_idle()) {
+            installer.set_on_activity_changed();
+            installer.set_log_state(ext_settings.logging);
+        } else {
+            installer.set_on_activity_changed(() => {
                 installer.set_on_activity_changed();
                 installer.set_log_state(ext_settings.logging);
-            } else {
-                installer.set_on_activity_changed(() => {
-                    installer.set_on_activity_changed();
-                    installer.set_log_state(ext_settings.logging);
-                });
-            }
+            });
         }
     }
-});
+}
 
 var svc_status = new RoonApiStatus(roon);
 var timer = new ApiTimeInput();
@@ -105,11 +110,56 @@ var installer = new ApiExtensionInstaller({
     }
 }, ext_settings.logging, true, process.argv[2]);
 
+var web_callbacks = {
+    get_api_object: function() {
+        return roon;
+    },
+    get_status: function() {
+        return {
+            message:  last_message,
+            is_error: last_is_error
+        };
+    },
+    get_settings: function() {
+        return makelayout(ext_settings, true);
+    },
+    save_settings: function(req, isdryrun, settings) {
+        for (const key in settings.values) {
+            const value = settings.values[key];
+
+            switch (value) {
+                case 'undefined':
+                    settings.values[key] = undefined;
+                    break;
+                case 'true':
+                case 'false':
+                    settings.values[key] = (value === 'true' ? true : false);
+                    break;
+                default:
+                    // Is numeric?
+                    if (!isNaN(parseFloat(value)) && isFinite(value)) {
+                        settings.values[key] = parseInt(value);
+                    }
+                    break;
+            }
+        }
+
+        return save_settings(req, isdryrun, settings);
+    },
+    get_logs_archive: function(res) {
+        installer.get_logs_archive((file_path) => {
+            res.download(file_path);
+        });
+    }
+};
+
+var web_interface = new WebInterface(PORT, web_callbacks);
+
 roon.init_services({
     provided_services: [ svc_settings, svc_status ]
 });
 
-function makelayout(settings) {
+function makelayout(settings, initial) {
     let l = {
         values:    settings,
         layout:    [],
@@ -158,7 +208,6 @@ function makelayout(settings) {
     let action = {
         type:    "dropdown",
         title:   "Action",
-        values:  [{ title: "(select action)", value: undefined }],
         setting: "action"
     };
 
@@ -167,6 +216,10 @@ function makelayout(settings) {
     installer.set_on_activity_changed(() => {
         svc_settings.update_settings(l);
     });
+
+    if (initial) {
+        settings.pending_actions = {};
+    }
 
     if (!features || features.auto_update != 'off') {
         global.items.push(update);
@@ -195,7 +248,7 @@ function makelayout(settings) {
     category.values = category.values.concat(category_list);
 
     if (category_index !== undefined && category_index < category_list.length) {
-        extension_list = installer.get_extensions_by_category(category_index);
+        const extension_list = installer.get_extensions_by_category(category_index);
         selector.values = selector.values.concat(extension_list);
         selector.title = category_list[category_index].title + ' Extension';
 
@@ -211,7 +264,6 @@ function makelayout(settings) {
         if (name !== undefined) {
             const status  = installer.get_status(name);
             const details = installer.get_details(name);
-            const actions = installer.get_actions(name);
             let author = {
                 type: "label"
             };
@@ -234,23 +286,15 @@ function makelayout(settings) {
             status_string.title += (status.version ? ": version " + status.version : "");
             status_string.title += (status.tag ? ": tag " + status.tag : "");
 
-            if (installer.is_idle(name)) {
-                if (is_pending(name)) {
-                    action_list = [{ title: 'Revert Action', value: ACTION_NO_CHANGE }];
-                } else {
-                    action_list = actions.actions;
-                }
+            const actions = installer.get_actions(name);
 
-                action.values = action.values.concat(action_list);
-            } else {
-                action.values[0].title = '(in progress...)';
-            }
+            action.values = tune_action_list(name, settings, actions.actions);
 
             extension.items.push(author);
             extension.items.push(status_string);
             extension.items.push(action);
 
-            if (!is_pending(name) && actions.options) {
+            if (!settings.pending_actions[name] && actions.options) {
                 extension.items.push(create_options_group(actions.options));
             }
         } else {
@@ -278,11 +322,33 @@ function makelayout(settings) {
         title:   "[PENDING ACTIONS]",
         items:   [{
             type : "label",
-            title: get_pending_actions_string()
+            title: get_pending_actions_string(settings.pending_actions)
         }]
     });
 
     return l;
+}
+
+function tune_action_list(name, settings, actions) {
+    let new_actions = [];
+
+    if (name) {
+        if (installer.is_idle(name)) {
+            new_actions.push({ title: "(select action)", value: undefined });
+
+            if (settings.pending_actions[name]) {
+                new_actions.push({ title: 'Revert Action', value: ACTION_NO_CHANGE });
+            } else {
+                new_actions = new_actions.concat(actions);
+            }
+        } else {
+            new_actions.push({ title: '(in progress...)', value: undefined });
+        }
+    } else {
+        new_actions.push({ title: "(select action)", value: undefined });
+    }
+
+    return new_actions;
 }
 
 function create_options_group(options) {
@@ -376,13 +442,10 @@ function remove_docker_options(settings) {
     }
 }
 
-function is_pending(name) {
-    return pending_actions[name];
-}
-
 function update_pending_actions(settings) {
     const name = settings.selected_extension;
     const action = settings.action;
+    const actions = installer.get_actions(name).actions;
     const options = get_docker_options(settings);
 
     if (action !== undefined) {
@@ -391,15 +454,15 @@ function update_pending_actions(settings) {
             delete pending_actions[name];
         } else {
             // Update pending actions
-            for (let i = 0; i < action_list.length; i++) {
-                if (action_list[i].value === action) {
-                    let friendly = action_list[i].title + " " + installer.get_details(name).display_name;
+            for (let i = 0; i < actions.length; i++) {
+                if (actions[i].value === action) {
+                    let friendly = actions[i].title + " " + installer.get_details(name).display_name;
 
                     if (options) {
                         friendly += ' (with options)';
                     }
 
-                    pending_actions[name] = {
+                    settings.pending_actions[name] = {
                         action:   action,
                         friendly: friendly,
                         options:  options
@@ -416,7 +479,7 @@ function update_pending_actions(settings) {
     }
 }
 
-function get_pending_actions_string() {
+function get_pending_actions_string(pending_actions) {
     let pending_actions_string = ""
 
     for (const name in pending_actions) {
@@ -430,13 +493,15 @@ function get_pending_actions_string() {
     return pending_actions_string;
 }
 
-function perform_pending_actions() {
-    for (const name in pending_actions) {
-        installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
+function perform_pending_actions(settings) {
+    for (const name in settings.pending_actions) {
+        installer.perform_action(settings.pending_actions[name].action, name, settings.pending_actions[name].options);
         
         // Consume action
-        delete pending_actions[name];
+        delete settings.pending_actions[name];
     }
+
+    delete settings.pending_actions;
 }
 
 function set_update_timer() {
@@ -526,37 +591,6 @@ function set_status(message, is_error) {
     last_is_error = is_error;
 }
 
-var http = require('http');
-http.createServer(function(request, response) {
-    const fs = require('fs');
-    const contentType = 'application/gzip';
-
-    installer.get_logs_archive((file_path) => {
-        fs.readFile(file_path, (error, content) => {
-            if (error) {
-                if(error.code == 'ENOENT'){
-                    response.writeHead(404);
-                    response.end('File not found\n');
-                    response.end();
-                }
-                else {
-                    response.writeHead(500);
-                    response.end('An error occured: ' + error.code + '\n');
-                    response.end();
-                }
-
-                set_status('Error reading logs archive: ' + error.code, true);
-            }
-            else {
-                response.writeHead(200, { 'Content-Type': contentType });
-                response.end(content, 'utf-8');
-
-                set_status('Download request for logs archive processed', false);
-            }
-        });
-    });
-}).listen(PORT);
-
 function get_ip() {
     const os = require('os');
     const ifaces = os.networkInterfaces();
@@ -575,8 +609,8 @@ function get_ip() {
 }
 
 function init() {
-    let os = require("os");
-    let hostname = os.hostname().split(".")[0];
+    const os = require("os");
+    const hostname = os.hostname().split(".")[0];
 
     roon.extension_reginfo.extension_id += "." + hostname;
     roon.extension_reginfo.display_name += " @" + hostname;
