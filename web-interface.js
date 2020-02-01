@@ -105,14 +105,16 @@ function WebInterface(port, callbacks) {
     });
 
     app.post(SETTINGS_PATH, (req, res) => {
-        for (const key in req.body) {
-            if (key != 'apply') {
-                settings.values[key] = req.body[key];
+        if (settings) {
+            for (const key in req.body) {
+                if (key != 'apply') {
+                    settings.values[key] = req.body[key];
+                }
             }
-        }
 
-        if (callbacks.save_settings) {
-            settings = callbacks.save_settings(undefined, req.body.apply != 'Save', settings);
+            if (callbacks.save_settings) {
+                settings = callbacks.save_settings(undefined, req.body.apply != 'Save', settings);
+            }
         }
 
         res.status(200);
@@ -178,7 +180,7 @@ function _render_string(str) {
     let page_layout = '';
 
     if (str.setting) {
-        const value = settings.values[str.setting];
+        const value = (settings.values[str.setting] ? settings.values[str.setting] : '');
 
         page_layout += '<div class="row mb-2">\n';
         page_layout += '<div class="col">\n';

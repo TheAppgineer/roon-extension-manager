@@ -445,14 +445,15 @@ function remove_docker_options(settings) {
 function update_pending_actions(settings) {
     const name = settings.selected_extension;
     const action = settings.action;
-    const actions = installer.get_actions(name).actions;
     const options = get_docker_options(settings);
 
     if (action !== undefined) {
         if (action === ACTION_NO_CHANGE) {
             // Remove action from pending_actions
-            delete pending_actions[name];
+            delete settings.pending_actions[name];
         } else {
+            const actions = installer.get_actions(name).actions;
+
             // Update pending actions
             for (let i = 0; i < actions.length; i++) {
                 if (actions[i].value === action) {
