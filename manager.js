@@ -75,23 +75,15 @@ function save_settings(req, isdryrun, settings) {
 
     if (!isdryrun && !l.has_error) {
         remove_docker_options(l.values);
-        perform_pending_actions(l.values);
+        installer.perform_actions(l.values.pending_actions);
+        delete l.values.pending_actions;
 
         ext_settings = l.values;
         svc_settings.update_settings(l);
         roon.save_config("settings", ext_settings);
 
         set_update_timer();
-
-        if (installer.is_idle()) {
-            installer.set_on_activity_changed();
-            installer.set_log_state(ext_settings.logging);
-        } else {
-            installer.set_on_activity_changed(() => {
-                installer.set_on_activity_changed();
-                installer.set_log_state(ext_settings.logging);
-            });
-        }
+        installer.set_log_state(ext_settings.logging);
     }
 }
 
@@ -107,18 +99,13 @@ var installer = new ApiExtensionInstaller({
     },
     status_changed: function(message, is_error) {
         set_status(message, is_error);
+        web_interface.update_status(message, is_error);
     }
 }, ext_settings.logging, true, process.argv[2]);
 
 var web_callbacks = {
     get_api_object: function() {
         return roon;
-    },
-    get_status: function() {
-        return {
-            message:  last_message,
-            is_error: last_is_error
-        };
     },
     get_settings: function() {
         return makelayout(ext_settings, true);
@@ -213,10 +200,6 @@ function makelayout(settings, initial) {
 
     const features = installer.get_features();
 
-    installer.set_on_activity_changed(() => {
-        svc_settings.update_settings(l);
-    });
-
     if (initial) {
         settings.pending_actions = {};
     }
@@ -249,11 +232,12 @@ function makelayout(settings, initial) {
 
     if (category_index !== undefined && category_index < category_list.length) {
         const extension_list = installer.get_extensions_by_category(category_index);
+        let name = undefined;
+
         selector.values = selector.values.concat(extension_list);
         selector.title = category_list[category_index].title + ' Extension';
 
-        let name = undefined;
-
+        // Check if selected extension is included in the current category
         for (let i = 0; i < extension_list.length; i++) {
             if (extension_list[i].value == settings.selected_extension) {
                 name = settings.selected_extension;
@@ -267,6 +251,11 @@ function makelayout(settings, initial) {
             let author = {
                 type: "label"
             };
+
+            installer.set_on_activity_changed(() => {
+                svc_settings.update_settings(l);
+                web_interface.update_actions(tune_action_list(name, settings, installer.get_actions(name).actions));
+            });
 
             if (details.packager) {
                 author.title  = "Developed by: " + details.author;
@@ -336,7 +325,7 @@ function tune_action_list(name, settings, actions) {
         if (installer.is_idle(name)) {
             new_actions.push({ title: "(select action)", value: undefined });
 
-            if (settings.pending_actions[name]) {
+            if (settings.pending_actions && settings.pending_actions[name]) {
                 new_actions.push({ title: 'Revert Action', value: ACTION_NO_CHANGE });
             } else {
                 new_actions = new_actions.concat(actions);
@@ -492,17 +481,6 @@ function get_pending_actions_string(pending_actions) {
     }
 
     return pending_actions_string;
-}
-
-function perform_pending_actions(settings) {
-    for (const name in settings.pending_actions) {
-        installer.perform_action(settings.pending_actions[name].action, name, settings.pending_actions[name].options);
-        
-        // Consume action
-        delete settings.pending_actions[name];
-    }
-
-    delete settings.pending_actions;
 }
 
 function set_update_timer() {

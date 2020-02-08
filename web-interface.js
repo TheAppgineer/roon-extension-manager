@@ -20,53 +20,55 @@ const SETTINGS_PATH = "/settings";
 
 var api_object;
 var settings;
+var io;
+var curr_status = {};
+var curr_actions;
 
 function WebInterface(port, callbacks) {
     const app = express();
+    const server = require('http').createServer(app);
 
-    require("util").inspect.defaultOptions.depth = null;    // Full objects in console.log
+    io = require('socket.io')(server);
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: false}));
+    app.use(express.static('public'));
 
     app.get('/', (req, res) => {
-        const title = 'Extensions';
+        const title = 'Roon Extensions';
         let page_layout = `<h2 class="text-center mb-5">${title}</h2>\n`;
 
         // Drop local settings as the settings page was left
         settings = undefined;
+
+        page_layout += '<div class="row">\n';
+        page_layout += '<div class="col">\n';
 
         if (callbacks.get_api_object) {
             api_object = callbacks.get_api_object();
 
             const info = api_object.extension_reginfo;
 
-            page_layout += '<div class="row">\n';
-            page_layout += '<div class="col">\n';
             page_layout += `<h5 class="text">${info.publisher}</h5>\n`;
             page_layout += `<h6><a href="${info.website}" class="text">${info.display_name}</a>\n`;
             page_layout += `<font class="text">${info.display_version}</font></h6>\n`;
-            page_layout += '</div>\n';
-            page_layout += '<div class="col">\n';
-            page_layout += '<a href="/settings" class="btn btn-primary float-right">Settings</a>\n';
-            page_layout += '</div>\n';
-            page_layout += '</div>\n';
-            page_layout += '<div class="row">\n';
-            page_layout += '<div class="col">\n';
-
-            if (callbacks.get_status) {
-                const status = callbacks.get_status();
-                const color = (status.is_error ? 'red' : 'black');
-
-                page_layout += `<h6 class="text" style="color:${color};">${status.message}</h6>\n`;
-            }
         }
 
+        page_layout += '</div>\n';
+        page_layout += '<div class="col">\n';
+        page_layout += '<a href="/settings" class="btn btn-primary float-right">Settings</a>\n';
+        page_layout += '</div>\n';
+        page_layout += '</div>\n';
+        page_layout += '<div class="row">\n';
+        page_layout += '<div class="col">\n';
+        page_layout += `<h6 class="text" id ="status_id"></h6>\n`;
         page_layout += '</div>\n';
         page_layout += '<div class="col">\n';
         page_layout += '<a href="/extensions.log" class="btn btn-light float-right">Download Log Files</a>\n';
         page_layout += '</div>\n';
         page_layout += '</div>\n';
+        page_layout += '<script src="/socket.io/socket.io.js"></script>\n';
+        page_layout += '<script src="status.js"></script>\n';
 
         res.send(_get_page(title, page_layout));
     });
@@ -99,6 +101,8 @@ function WebInterface(port, callbacks) {
             page_layout += '<a href="/" class="btn btn-light float-right mt-3 ml-3">Cancel</a>\n';
             page_layout += '<input type="submit" name="apply" value="Save" class="btn btn-primary float-right mt-3">\n';
             page_layout += '</form>\n';
+            page_layout += '<script src="/socket.io/socket.io.js"></script>\n';
+            page_layout += '<script src="actions.js"></script>\n';
 
             res.send(_get_page(title, page_layout));
         }
@@ -129,8 +133,29 @@ function WebInterface(port, callbacks) {
     app.get('/extensions.log', (req, res) => {
         callbacks.get_logs_archive && callbacks.get_logs_archive(res);
     });
+    
+    io.on('connection', (socket) => {
+        // Send current status at first connect
+        socket.emit('status', curr_status);
+        socket.emit('actions', curr_actions);
+    });
+    
+    server.listen(port);
+}
 
-    app.listen(port);
+WebInterface.prototype.update_status = function(message, is_error) {
+    curr_status.message = message;
+    curr_status.is_error = is_error;
+
+    // Send status to all clients
+    io.sockets.emit('status', curr_status);
+}
+
+WebInterface.prototype.update_actions = function(actions) {
+    curr_actions = actions;
+
+    // Send actions to all clients
+    io.sockets.emit('actions', actions);
 }
 
 function _get_page(title, body) {
@@ -139,10 +164,15 @@ function _get_page(title, body) {
         '<head>\n' +
         '<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" ' +
         'integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">\n' +
+        '<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">\n' +
+        '<link rel="icon" href="favicon.ico" type="image/x-icon">\n' +
         `<title>${title}</title>\n` +
         '</head>\n' +
         '<body>\n' +
-        '<div class="container mt-4">\n' +
+        '<div class="container mt-2">\n' +
+        '<div><small>\n' +
+        '<a href="https://github.com/TheAppgineer/roon-extension-manager/wiki#roon-extension-manager" class="text float-right">Roon Extension Manager Wiki</a><br>' +
+        '</small></div>\n' +
         body +
         '</div>\n' +
         '</body>\n' +
@@ -180,6 +210,7 @@ function _render_string(str) {
     let page_layout = '';
 
     if (str.setting) {
+        const state = (str.error ? 'is-invalid' : '');
         const value = (settings.values[str.setting] ? settings.values[str.setting] : '');
 
         page_layout += '<div class="row mb-2">\n';
@@ -187,7 +218,8 @@ function _render_string(str) {
         page_layout += `<label class="form-check-label" for="${str.setting}_id">${str.title}</label>\n`;
         page_layout += '</div>\n';
         page_layout += '<div class="col">\n';
-        page_layout += `<input type="text" name="${str.setting}" value="${value}" class="form-control" id ="${str.setting}_id">\n`;
+        page_layout += `<input type="text" onchange="this.form.submit()" name="${str.setting}" value="${value}" class="form-control ${state}" id ="${str.setting}_id">\n`;
+        page_layout += `<div class="invalid-feedback">${str.error}</div>\n`;
         page_layout += '</div>\n';
         page_layout += '</div>\n';
     }
