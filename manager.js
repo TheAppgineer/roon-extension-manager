@@ -37,7 +37,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.11.5",
+    display_version:     "0.11.6",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
@@ -308,7 +308,7 @@ function create_options_group(options) {
 
             options_group.items.push({
                 type:    "string",
-                title:   split[1],
+                title:   (split[0] ? `${split[1]}\n(default ${split[0]})` : split[1]),
                 setting: "docker_devices_" + (split[0] == '' ? i : split[0])
             });
         }
@@ -332,21 +332,16 @@ function get_docker_options(settings) {
     let docker;
 
     for (const key in settings) {
-        if (key.includes("docker_") && settings[key]) {
-            // This setting has to be passed on towards Docker
-            // It is in the form: docker_<field_type>_<field_name>
+        if (key.includes("docker_")) {
+            // Keys are in the form: docker_<field_type>_<field_name>
             const split = key.split('_');
+            const field = split[1];
 
-            if (split.length > 2) {
-                const field = split[1];
+            if (settings[key]) {
+                if (!docker)        docker = {};
+                if (!docker[field]) docker[field] = {};
 
-                if (!docker) {
-                    docker = {};
-                }
-                if (!docker[field]) {
-                    docker[field] = {};
-                }
-
+                // This setting has to be passed on towards Docker
                 if (field == 'devices' || field == 'binds') {
                     if (split[2].indexOf('/') == 0) {
                         // The set value contains the host path, the setting name contains the container path
@@ -361,6 +356,12 @@ function get_docker_options(settings) {
                 } else {
                     docker[field][split[2]] = settings[key];
                 }
+            } else if (field == 'devices') {
+                if (!docker)        docker = {};
+                if (!docker[field]) docker[field] = {};
+
+                //Fallback to the container path for devices that haven't been set by user
+                docker[field][split.slice(2).join('_')] = split.slice(2).join('_');
             }
         }
     }
@@ -400,9 +401,9 @@ function update_pending_actions(settings) {
                     }
 
                     pending_actions[name] = {
-                        action:   action,
-                        friendly: friendly,
-                        options:  options
+                        action,
+                        friendly,
+                        options
                     };
 
                     break;
