@@ -37,16 +37,18 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.11.6",
+    display_version:     "0.11.7",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
 
-    core_found: function() {
+    core_found: function(core) {
+        console.log('Core found:', core.display_name);
         clear_watchdog_timer();
         setup_ping_timer();
     },
-    core_lost: function() {
+    core_lost: function(core) {
+        console.log('Core lost:', core.display_name);
         clear_ping_timer();
         setup_watchdog_timer();
     }
@@ -494,6 +496,7 @@ function timer_timed_out() {
 function setup_ping_timer() {
     if (!ping_timer_id) {
         ping_timer_id = setInterval(ping, 60000);
+        console.log('Ping timer set');
     }
 }
 
@@ -505,6 +508,7 @@ function ping() {
 function clear_ping_timer() {
     if (ping_timer_id) {
         clearInterval(ping_timer_id);
+        console.log('Ping timer cleared');
     }
 }
 
@@ -512,11 +516,13 @@ function setup_watchdog_timer() {
     clear_watchdog_timer();
 
     watchdog_timer_id = setTimeout(installer.restart_manager, 30000);
+    console.log('Watchdog timer set');
 }
 
 function clear_watchdog_timer() {
     if (watchdog_timer_id) {
         clearTimeout(watchdog_timer_id);
+        console.log('Watchdog timer cleared');
     }
 }
 
