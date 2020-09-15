@@ -37,7 +37,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.11.7",
+    display_version:     "0.11.8",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
@@ -253,7 +253,7 @@ function makelayout(settings) {
             extension.items.push(action);
 
             if (!is_pending(name) && actions.options) {
-                extension.items.push(create_options_group(actions.options));
+                extension.items.push(create_options_group(actions.options, settings));
             }
         } else {
             settings.selected_extension = undefined;
@@ -287,7 +287,7 @@ function makelayout(settings) {
     return l;
 }
 
-function create_options_group(options) {
+function create_options_group(options, settings) {
     let options_group = {
         type:    "group",
         title:   "Docker Install Options",
@@ -313,6 +313,10 @@ function create_options_group(options) {
                 title:   (split[0] ? `${split[1]}\n(default ${split[0]})` : split[1]),
                 setting: "docker_devices_" + (split[0] == '' ? i : split[0])
             });
+
+            if (split[0]) {
+                settings["docker_devices_" + split[0]] = '';
+            }
         }
     }
     if (options.binds) {
@@ -436,7 +440,7 @@ function get_pending_actions_string() {
 function perform_pending_actions() {
     for (const name in pending_actions) {
         installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
-        
+
         // Consume action
         delete pending_actions[name];
     }
