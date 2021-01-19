@@ -1,0 +1,16 @@
+version: '2.4'
+services:
+  rem:
+    image: roon-extension-manager:latest
+    container_name: roon-extension-manager
+    group_add:
+      - ${DOCKER_GID}
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - rem_data:/home/worker/.rem/
+    environment:
+      - TZ=${TZ}
+    network_mode: host
+volumes:
+  rem_data:

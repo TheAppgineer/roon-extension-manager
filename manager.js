@@ -1,4 +1,4 @@
-// Copyright 2017, 2018, 2019, 2020 The Appgineer
+// Copyright 2017 - 2021 The Appgineer
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "0.11.9",
+    display_version:     "1.0.0-beta1",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
@@ -105,7 +105,7 @@ var installer = new ApiExtensionInstaller({
     status_changed: function(message, is_error) {
         set_status(message, is_error);
     }
-}, ext_settings.logging, true, process.argv[2]);
+}, ext_settings.logging, process.argv[2]);
 
 roon.init_services({
     provided_services: [ svc_settings, svc_status ]
@@ -250,11 +250,12 @@ function makelayout(settings) {
 
             extension.items.push(author);
             extension.items.push(status_string);
-            extension.items.push(action);
 
             if (!is_pending(name) && actions.options) {
                 extension.items.push(create_options_group(actions.options, settings));
             }
+
+            extension.items.push(action);
         } else {
             settings.selected_extension = undefined;
             remove_docker_options(settings);
