@@ -251,19 +251,17 @@ function makelayout(settings) {
             extension.items.push(author);
             extension.items.push(status_string);
 
-            if (!is_pending(name) && actions.options) {
-                extension.items.push(create_options_group(actions.options, settings));
+            if (actions.options) {
+                extension.items = extension.items.concat(create_option_items(actions.options, settings));
             }
 
             extension.items.push(action);
         } else {
             settings.selected_extension = undefined;
-            remove_docker_options(settings);
         }
     } else {
         settings.selected_category = undefined;
         settings.selected_extension = undefined;
-        remove_docker_options(settings);
     }
 
     if (global.items.length) {
@@ -288,51 +286,69 @@ function makelayout(settings) {
     return l;
 }
 
-function create_options_group(options, settings) {
-    let options_group = {
-        type:    "group",
-        title:   "Docker Install Options",
-        collapsable: true,
-        items:   []
-    };
+function create_option_items(options, settings) {
+    let items = [];
 
     if (options.env) {
         for (const var_name in options.env) {
-            options_group.items.push({
-                type:    "string",
-                title:   options.env[var_name],
-                setting: "docker_env_" + var_name
-            });
+            const split = options.env[var_name].split(':');
+            const setting_key = `docker_${settings.selected_extension}_env_${var_name}`;
+            let env = {
+                type:    'string',
+                title:   split[1],
+                setting: setting_key
+            };
+
+            if (split[0]) {
+                env.subtitle = `default: ${split[0]}`;
+            }
+
+            if (!settings[setting_key]) {
+                if (process.env[var_name]) {
+                    settings[setting_key] = process.env[var_name];
+                } else if (split[0]) {
+                    settings[setting_key] = split[0];
+                }
+            }
+
+            items.push(env);
         }
     }
     if (options.devices) {
         for (let i = 0; i < options.devices.length; i++) {
             const split = options.devices[i].split(':');
-
-            options_group.items.push({
-                type:    "string",
-                title:   (split[0] ? `${split[1]}\n(default ${split[0]})` : split[1]),
-                setting: "docker_devices_" + (split[0] == '' ? i : split[0])
-            });
+            const setting_key = `docker_${settings.selected_extension}_devices_${split[0] == '' ? i : split[0]}`;
+            let device = {
+                type:    'string',
+                title:   split[1],
+                setting: setting_key
+            };
 
             if (split[0]) {
-                settings["docker_devices_" + split[0]] = '';
+                device.subtitle = `default: ${split[0]}`;
+
+                if (!settings[setting_key]) {
+                    settings[setting_key] = split[0];
+                }
             }
+
+            items.push(device);
         }
     }
     if (options.binds) {
         for (let i = 0; i < options.binds.length; i++) {
             const split = options.binds[i].split(':');
+            const setting_key = `docker_${settings.selected_extension}_binds_${split[0] == '' ? i : split[0]}`;
 
-            options_group.items.push({
-                type:    "string",
+            items.push({
+                type:    'string',
                 title:   split[1],
-                setting: "docker_binds_" + (split[0] == '' ? i : split[0])
+                setting: setting_key
             });
         }
     }
 
-    return options_group;
+    return items;
 }
 
 function get_docker_options(settings) {
@@ -340,35 +356,38 @@ function get_docker_options(settings) {
 
     for (const key in settings) {
         if (key.includes("docker_")) {
-            // Keys are in the form: docker_<field_type>_<field_name>
+            // Keys are in the form: docker_<name>_<field_type>_<field_name>
             const split = key.split('_');
-            const field = split[1];
+            const name = split[1];
+            const field = split[2];
 
             if (settings[key]) {
-                if (!docker)        docker = {};
-                if (!docker[field]) docker[field] = {};
+                if (!docker)              docker = {};
+                if (!docker[name])        docker[name] = {};
+                if (!docker[name][field]) docker[name][field] = {};
 
                 // This setting has to be passed on towards Docker
                 if (field == 'devices' || field == 'binds') {
-                    if (split[2].indexOf('/') == 0) {
+                    if (split[3].indexOf('/') == 0) {
                         // The set value contains the host path, the setting name contains the container path
-                        docker[field][settings[key]] = split.slice(2).join('_');
+                        docker[name][field][settings[key]] = split.slice(3).join('_');
                     } else {
                         // one on one path mapping
-                        docker[field][settings[key]] = settings[key];
+                        docker[name][field][settings[key]] = settings[key];
                     }
                 } else if (field == 'env') {
                     // Join all remaining segments to allow underscores in environment names
-                    docker[field][split.slice(2).join('_')] = settings[key];
+                    docker[name][field][split.slice(3).join('_')] = settings[key];
                 } else {
-                    docker[field][split[2]] = settings[key];
+                    docker[name][field][split[3]] = settings[key];
                 }
             } else if (field == 'devices') {
-                if (!docker)        docker = {};
-                if (!docker[field]) docker[field] = {};
+                if (!docker)              docker = {};
+                if (!docker[name])        docker[name] = {};
+                if (!docker[name][field]) docker[name][field] = {};
 
                 //Fallback to the container path for devices that haven't been set by user
-                docker[field][split.slice(2).join('_')] = split.slice(2).join('_');
+                docker[name][field][split.slice(3).join('_')] = split.slice(3).join('_');
             }
         }
     }
@@ -403,14 +422,10 @@ function update_pending_actions(settings) {
                 if (action_list[i].value === action) {
                     let friendly = action_list[i].title + " " + installer.get_details(name).display_name;
 
-                    if (options) {
-                        friendly += ' (with options)';
-                    }
-
                     pending_actions[name] = {
                         action,
                         friendly,
-                        options
+                        options: options && options[name]
                     };
 
                     break;
@@ -419,7 +434,6 @@ function update_pending_actions(settings) {
         }
 
         // Cleanup
-        remove_docker_options(settings);
         delete settings["action"];
     }
 }
