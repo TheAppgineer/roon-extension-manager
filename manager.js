@@ -18,7 +18,7 @@ var RoonApi               = require("node-roon-api"),
     RoonApiSettings       = require('node-roon-api-settings'),
     RoonApiStatus         = require('node-roon-api-status'),
     ApiTimeInput          = require('node-api-time-input'),
-    ApiExtensionInstaller = require('node-api-extension-installer');
+    ApiExtensionInstaller = require('./installer-lib');
 
 const ACTION_NO_CHANGE = 0;
 

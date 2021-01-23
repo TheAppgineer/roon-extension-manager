@@ -1,24 +1,19 @@
-# build_hw: use 'intel-nuc' for amd64, 'rpi' for arm32v6
-ARG build_hw=intel-nuc
+FROM node:12.16.3-alpine
 
-FROM balenalib/${build_hw}-debian:buster
-
-RUN useradd -ms /bin/bash worker && \
-    apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    nodejs \
-    tzdata
+COPY manager.js installer-lib.js docker-lib.js package.json LICENSE /home/worker/
 
 WORKDIR /home/worker
 
-COPY manager.js package.json LICENSE /home/worker/
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git npm && \
+RUN adduser -D -s /bin/sh -h /home/worker worker && \
+    apk add --no-cache tzdata git && \
     npm install && \
-    apt-get autoremove -y git npm && \
+    apk del git && \
     mkdir -p .rem && \
     ln -s .rem/config.json config.json && \
-    chown -R worker:worker .
+    chown -R worker:worker . && \
+    rm -rf /root/.npm/ && \
+    rm -rf /usr/local/lib/node_modules/ && \
+    rm -rf /usr/local/bin/np*
 
 USER worker
 

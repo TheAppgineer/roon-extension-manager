@@ -6,11 +6,13 @@
     "author": "The Appgineer",
     "license": "Apache-2.0",
     "dependencies": {
-        "node-api-extension-installer": "github:TheAppgineer/node-api-extension-installer#v1.x",
+        "dockerode": "^2.5.7",
+        "mkdirp": "^0.5.0",
         "node-api-time-input": "github:TheAppgineer/node-api-time-input",
         "node-roon-api": "github:roonlabs/node-roon-api",
         "node-roon-api-settings": "github:roonlabs/node-roon-api-settings",
-        "node-roon-api-status": "github:roonlabs/node-roon-api-status"
+        "node-roon-api-status": "github:roonlabs/node-roon-api-status",
+        "tar": "^4.4.10"
     },
     "bin": {
         "roon-extension-manager": "manager.js"
