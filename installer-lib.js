@@ -386,7 +386,7 @@ function _update_repository() {
             if (changed) {
                 _load_repository(parsed);
             } else {
-                _set_status("Extension Repository already up to date", false);
+                _set_status('Extension Repository already up to date', false);
             }
 
             _remove_action(REPOS_NAME);
@@ -588,12 +588,11 @@ function _install(name, options, cb) {
                 name:       (containerized ? MANAGER_NAME : undefined)
             };
 
-            _set_status("Installing: " + name + "...", false);
+            _set_status(`Installing: ${name}...`, false);
 
             docker.install(_get_extension(name).image, bind_props, options, (err, tag) => {
                 if (err) {
-                    _set_status("Installation failed: " + name, true);
-                    console.error(err);
+                    _set_status(`Installation failed: ${name}\n${err}`, true);
                 } else {
                     docker_installed[name] = tag;
                 }
@@ -615,10 +614,14 @@ function _register_updated_version(name, err) {
 function _register_version(name, update, err) {
     const version = docker_installed[name];
 
-    if (err) {
+    if (err && err != 'already up to date') {
         _set_status((update ? 'Update' : 'Installation') + ' failed: ' + name, true);
     } else if (version) {
-        _set_status((update ? 'Updated: ' : 'Installed: ') + name + ' (' + version + ')', false);
+        if (err) {
+            _set_status(`${name} ${err}`, false);
+        } else {
+            _set_status((update ? 'Updated: ' : 'Installed: ') + name + ' (' + version + ')', false);
+        }
 
         if (update) {
             const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
@@ -647,11 +650,7 @@ function _update(name, cb) {
                 _update_repository();
             } else if (docker_installed[name]) {
                 docker.update(name, (err) => {
-                    if (err) {
-                        console.error(err);
-                    }
-
-                    cb && cb(name);
+                    cb && cb(name, err);
                 });
             }
         });
@@ -661,13 +660,12 @@ function _update(name, cb) {
 function _uninstall(name, cb) {
     if (name) {
         _stop(name, true, () => {
-            _set_status("Uninstalling: " + name + "...", false);
+            _set_status(`Uninstalling: ${name}...`, false);
 
             if (docker_installed[name]) {
                 docker.uninstall(name, (err, installed) => {
                     if (err) {
-                        _set_status("Uninstall failed: " + name, true);
-                        console.error(err);
+                        _set_status(`Uninstall failed: ${name}\n${err}`, true);
                     } else {
                         docker_installed = _get_docker_installed_extensions(installed);
                     }

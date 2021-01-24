@@ -171,7 +171,7 @@ ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, opti
             _install(repo_tag_string, config, cb);
         }
     } else {
-        cb && cb('No image available for "' + docker_version.Arch + '" architecture');
+        cb && cb(`No image available for "${docker_version.Arch}" architecture`);
     }
 }
 
@@ -384,9 +384,8 @@ function _install(repo_tag_string, config, cb) {
                 const final_status = output[output.length - 1].status;
                 const name = _split(repo_tag_string).repo;
 
-                if (installed[name] && final_status.includes('Status: Image is up to date')) {
-                    console.log(final_status);
-                    _query_installs(cb, repo_tag_string);
+                if (installed[name] && final_status == `Status: Image is up to date for ${repo_tag_string}`) {
+                    cb && cb('already up to date');
                 } else {
                     config.name  = name;
                     config.Image = repo_tag_string;
