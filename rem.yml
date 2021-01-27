@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - rem_data:/home/worker/.rem/
+      - rem_data:/home/node/.rem/
     environment:
       - TZ=${TZ}
     network_mode: host
