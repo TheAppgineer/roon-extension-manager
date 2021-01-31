@@ -55,8 +55,7 @@ var roon = new RoonApi({
 });
 
 var ext_settings = roon.load_config("settings") || {
-    update_time: "02:00",
-    logging:     true
+    update_time: "02:00"
 };
 
 var svc_settings = new RoonApiSettings(roon, {
@@ -81,11 +80,9 @@ var svc_settings = new RoonApiSettings(roon, {
 
             if (installer.is_idle()) {
                 installer.set_on_activity_changed();
-                installer.set_log_state(ext_settings.logging);
             } else {
                 installer.set_on_activity_changed(() => {
                     installer.set_on_activity_changed();
-                    installer.set_log_state(ext_settings.logging);
                 });
             }
         }
@@ -105,7 +102,7 @@ var installer = new ApiExtensionInstaller({
     status_changed: function(message, is_error) {
         set_status(message, is_error);
     }
-}, ext_settings.logging, process.argv[2]);
+}, process.argv[2]);
 
 roon.init_services({
     provided_services: [ svc_settings, svc_status ]
@@ -127,15 +124,6 @@ function makelayout(settings) {
         type:    "string",
         title:   "Check for updates @ [hh:mm]",
         setting: "update_time"
-    };
-    const logging = {
-        type:    "dropdown",
-        title:   "Logging (change forces restart)",
-        values:  [
-            { title: "Disabled", value: false },
-            { title: "Enabled",  value: true  }
-        ],
-        setting: "logging"
     };
     let category = {
         type:    "dropdown",
@@ -172,14 +160,6 @@ function makelayout(settings) {
 
     if (!features || features.auto_update != 'off') {
         global.items.push(update);
-    }
-
-    if (!features || features.log_mode != 'off') {
-        if (settings.logging === undefined) {
-            settings.logging = false;
-        }
-
-        global.items.push(logging);
     }
 
     if (settings.update_time) {
@@ -232,7 +212,6 @@ function makelayout(settings) {
             }
 
             status_string.title  = status.state.toUpperCase();
-            status_string.title += (status.logging ? " (with logging)" : "");
             status_string.title += (status.version ? ": version " + status.version : "");
             status_string.title += (status.tag ? ": tag " + status.tag : "");
 
@@ -555,31 +534,11 @@ function set_status(message, is_error) {
 var http = require('http');
 http.createServer(function(request, response) {
     const fs = require('fs');
-    const contentType = 'application/gzip';
 
-    installer.get_logs_archive((file_path) => {
-        fs.readFile(file_path, (error, content) => {
-            if (error) {
-                if(error.code == 'ENOENT'){
-                    response.writeHead(404);
-                    response.end('File not found\n');
-                    response.end();
-                }
-                else {
-                    response.writeHead(500);
-                    response.end('An error occured: ' + error.code + '\n');
-                    response.end();
-                }
+    installer.get_logs_archive((stream) => {
+        response.writeHead(200, { 'Content-Type': 'application/gzip' });
 
-                set_status('Error reading logs archive: ' + error.code, true);
-            }
-            else {
-                response.writeHead(200, { 'Content-Type': contentType });
-                response.end(content, 'utf-8');
-
-                set_status('Download request for logs archive processed', false);
-            }
-        });
+        stream.pipe(response);
     });
 }).listen(PORT);
 

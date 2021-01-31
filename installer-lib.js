@@ -41,10 +41,8 @@ const ACTION_INSTALL = 1;
 const ACTION_UPDATE = 2;
 const ACTION_UNINSTALL = 3;
 const ACTION_START = 4;
-const ACTION_START_AND_LOG = 5;
-const ACTION_RESTART = 6;
-const ACTION_RESTART_AND_LOG = 7;
-const ACTION_STOP = 8;
+const ACTION_RESTART = 5;
+const ACTION_STOP = 6;
 
 const action_strings = [
     '',
@@ -52,25 +50,18 @@ const action_strings = [
     'Update',
     'Uninstall',
     'Start',
-    'Start (with logging)',
     'Restart',
-    'Restart (with logging)',
     'Stop'
 ];
 
-const stdout_write = process.stdout.write;
-const stderr_write = process.stderr.write;
-const extension_root = `${process.cwd()}/.rem/`;
-const backup_dir = 'backup/';
-const repos_dir = 'repos/';
 const log_dir = 'log/';
+const data_root = `${process.cwd()}/.rem/`;
+const repos_dir = 'repos/';
 const binds_dir = 'binds/';
-const perform_restart = 67;
 
 const fs = require('fs');
-var ApiExtensionInstallerDocker = require('./docker-lib');
+const ApiExtensionInstallerDocker = require('./docker-lib');
 
-var write_stream;
 var docker;
 var features;
 var repos;
@@ -79,15 +70,13 @@ var docker_installed = {};
 var containerized;
 var updates_list = {};
 var action_queue = {};
-var logging_active = false;
-var logs_list = {};
 var session_error;
 
 var repository_cb;
 var status_cb;
 var on_activity_changed;
 
-function ApiExtensionInstaller(callbacks, logging, features_file) {
+function ApiExtensionInstaller(callbacks, features_file) {
     const mkdirp = require('mkdirp');
 
     process.on('SIGTERM', _handle_signal);
@@ -107,52 +96,16 @@ function ApiExtensionInstaller(callbacks, logging, features_file) {
         features = _read_JSON_file_sync(features_file);
     }
 
-    if (!features && extension_root) {
-        features = _read_JSON_file_sync(extension_root + 'features.json');
+    if (!features && data_root) {
+        features = _read_JSON_file_sync(data_root + 'features.json');
     }
 
     // Create log directory
-    extension_root && mkdirp(extension_root + log_dir, (err, made) => {
+    mkdirp(log_dir, (err, made) => {
         if (err) {
             console.error(err);
         } else {
-            let logs_array = [];
-
             _set_status("Starting Roon Extension Manager...", false);
-
-            if (!features || features.log_mode != 'off') {
-                // Logging feature active
-                if (logging) {
-                    // Logging enabled
-                    logs_array = _read_JSON_file_sync('logging.json');
-                    if (logs_array === undefined) logs_array = [];
-
-                    if (logs_array && logs_array.includes(MANAGER_NAME) &&
-                            (!features || features.log_mode != 'child_nodes')) {
-                        // Start logging of manager stdout
-                        const fd = _get_log_descriptor(MANAGER_NAME);
-                        write_stream = fs.createWriteStream('', {flags: 'a', fd: fd});
-
-                        process.stdout.write = function() {
-                            stdout_write.apply(process.stdout, arguments);
-                            write_stream.write.apply(write_stream, arguments);
-                        };
-                        process.stderr.write = function() {
-                            stderr_write.apply(process.stderr, arguments);
-                            write_stream.write.apply(write_stream, arguments);
-                        };
-                    }
-                }
-
-                logging_active = logging;
-            }
-
-            // Create backup directory, used during update
-            mkdirp(extension_root + backup_dir, (err, made) => {
-                if (err) {
-                    console.error(err);
-                }
-            });
 
             docker = new ApiExtensionInstallerDocker((err, installed) => {
                 if (err) {
@@ -161,15 +114,6 @@ function ApiExtensionInstaller(callbacks, logging, features_file) {
                     _set_status(`Docker for Linux found: Version ${docker.get_status().version}`, false);
 
                     docker_installed = installed;
-
-                    for (let i = 0; i < logs_array.length; i++) {
-                        const name = logs_array[i];
-
-                        if (docker_installed[name] && docker.get_status(name).state == 'running') {
-                            console.log("Capturing log stream of " + name);
-                            docker.log(name, _get_log_descriptor(name));
-                        }
-                    }
                 }
 
                 // Get extension repository
@@ -216,15 +160,9 @@ ApiExtensionInstaller.prototype.update_all = function() {
 }
 
 ApiExtensionInstaller.prototype.restart_manager = function() {
-    _restart(MANAGER_NAME, logging_active ? logs_list[MANAGER_NAME] : undefined);
+    _restart(MANAGER_NAME);
 }
 
-/**
- * Returns the status of an extension identified by name
- *
- * @param {String} name - The name of the extension according to its package.json file
- * @returns {('not_installed'|'installed'|'stopped'|'terminated'|'running')} - The status of the extension
- */
 ApiExtensionInstaller.prototype.get_status = function(name) {
     if (name == REPOS_NAME) {
         const version = repos && repos.version;
@@ -235,11 +173,7 @@ ApiExtensionInstaller.prototype.get_status = function(name) {
             version: version
         };
     } else {
-        let status = docker.get_status(name);
-
-        status.logging = (logs_list[name] !== undefined);
-
-        return status;
+        return docker.get_status(name);
     }
 }
 
@@ -273,10 +207,6 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
         } else if (name == MANAGER_NAME) {
             if (state == 'running') {
                 actions.push(_create_action_pair(ACTION_RESTART));
-
-                if (logging_active) {
-                    actions.push(_create_action_pair(ACTION_RESTART_AND_LOG));
-                }
             }
         } else {
             if (updates_list[name]) {
@@ -287,15 +217,9 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
 
             if (state == 'running') {
                 actions.push(_create_action_pair(ACTION_RESTART));
-                if (logging_active) {
-                    actions.push(_create_action_pair(ACTION_RESTART_AND_LOG));
-                }
                 actions.push(_create_action_pair(ACTION_STOP));
             } else {
                 actions.push(_create_action_pair(ACTION_START));
-                if (logging_active) {
-                    actions.push(_create_action_pair(ACTION_START_AND_LOG));
-                }
             }
         }
     }
@@ -308,13 +232,6 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
 
 ApiExtensionInstaller.prototype.get_features = function() {
     return features;
-}
-
-ApiExtensionInstaller.prototype.set_log_state = function(logging) {
-    if ((!logging_active && logging) || (logging_active && !logging)) {
-        // State changed
-        _restart(MANAGER_NAME);
-    }
 }
 
 ApiExtensionInstaller.prototype.perform_action = function(action, name, options) {
@@ -334,16 +251,10 @@ ApiExtensionInstaller.prototype.perform_action = function(action, name, options)
             _queue_action(name, { action: ACTION_UNINSTALL });
             break;
         case ACTION_START:
-            _start(name, false);
-            break;
-        case ACTION_START_AND_LOG:
-            _start(name, true);
+            _start(name);
             break;
         case ACTION_RESTART:
-            _restart(name, false);
-            break;
-        case ACTION_RESTART_AND_LOG:
-            _restart(name, true);
+            _restart(name);
             break;
         case ACTION_STOP:
             _stop(name, true);
@@ -361,11 +272,11 @@ ApiExtensionInstaller.prototype.is_idle = function(name) {
 
 ApiExtensionInstaller.prototype.get_logs_archive = function(cb) {
     const tar = require('tar');
-    const backup_file = extension_root + backup_dir + 'extension-logs.tar.gz';
-    const options = { file: backup_file, cwd: extension_root, gzip: true };
+    const options = { gzip: true };
+    let index = 0;
 
-    tar.create(options, [log_dir], () => {
-        cb && cb(backup_file);
+    _get_log(index, () => {
+        cb && cb(tar.create(options, [log_dir]));
     });
 }
 
@@ -423,7 +334,7 @@ function _download_repository(cb) {
 }
 
 function _load_repository(new_repo) {
-    const local_repos = extension_root + repos_dir;
+    const local_repos = data_root + repos_dir;
 
     repos = new_repo;
     repos.categories.unshift(repos_system);
@@ -583,7 +494,7 @@ function _install(name, options, cb) {
             _update_repository();
         } else {
             const bind_props = {
-                root:       extension_root,
+                root:       data_root,
                 binds_path: binds_dir + name,
                 name:       (containerized ? MANAGER_NAME : undefined)
             };
@@ -630,7 +541,7 @@ function _register_version(name, update, err) {
                 _start(name);
             }
         } else {
-            _start(name, false);
+            _start(name);
         }
 
         _query_updates(null, name);
@@ -683,52 +594,40 @@ function _unregister_version(name) {
     session_error = undefined;
 }
 
-function _get_log_descriptor(name) {
-    let descriptor = logs_list[name];
+function _get_log(index, cb) {
+    const names = Object.keys(docker_installed);
 
-    // Get file descriptor if it hasn't been defined
-    if (descriptor == undefined) {
-        const log_file = extension_root + log_dir + name + '.log';
+    if (index < names.length) {
+        const name = names[index];
+        const log_file = log_dir + name + '.log';
 
-        descriptor = fs.openSync(log_file, 'a');
-        logs_list[name] = descriptor;
+        console.log("Capturing log stream of " + name);
+        docker.get_log(name, log_file, () => {
+            _get_log(index + 1, cb);
+        });
+    } else {
+        cb && cb();
     }
-
-    return descriptor;
 }
 
-function _start(name, log) {
+function _start(name) {
     let fd;
-
-    if (log === undefined) {
-        log = (logging_active && logs_list[name] !== undefined);
-    } else if (log === false && logs_list[name] === null) {
-        delete logs_list[name];     // Logging explicitly got deactivated
-    }
-
-    if (log) {
-        fd = _get_log_descriptor(name);
-    }
 
     if (docker_installed[name]) {
         docker.start(name, fd);
     }
 
-    if (log) {
-        _set_status("Started (with logging): " + name, false);
-    } else {
-        _set_status("Started: " + name, false);
-    }
+    _set_status("Started: " + name, false);
 }
 
-function _restart(name, log) {
-    _stop(name, false, () => {
-        if (name == MANAGER_NAME) {
-            _terminate(perform_restart, log);
-        } else {
-            _start(name, log);
-        }
-    });
+function _restart(name) {
+    if (name == MANAGER_NAME) {
+        docker.restart(name);
+    } else {
+        _stop(name, false, () => {
+            _start(name);
+        });
+    }
 }
 
 function _stop(name, user, cb) {
@@ -753,35 +652,7 @@ function _stop(name, user, cb) {
     }
 }
 
-function _terminate(exit_code, log) {
-    if (logging_active) {
-        // Close log files
-        for (const name in logs_list) {
-            if (name == MANAGER_NAME) {
-                process.stdout.write = stdout_write;
-                process.stderr.write = stderr_write;
-
-                if (write_stream) {
-                    write_stream.end();
-                }
-            }
-        }
-
-        if (log !== undefined) {
-            // Logging specified
-            if (log && !logs_list[MANAGER_NAME]) {
-                // Switched on
-                logs_list[MANAGER_NAME] = null;
-            } else if (!log && logs_list[MANAGER_NAME]) {
-                // Switched off
-                delete logs_list[MANAGER_NAME];
-            }
-        }
-
-        // Write names of logging extensions to file
-        fs.writeFileSync('logging.json', JSON.stringify(Object.keys(logs_list)));
-    }
-
+function _terminate(exit_code) {
     if (exit_code) {
         process.exit(exit_code);
     } else {
@@ -876,12 +747,10 @@ function _query_updates(cb, name) {
 }
 
 function _set_status(message, is_error) {
-    const date = new Date();
-
     if (is_error) {
-        console.error(date.toISOString(), '- Err:', message);
+        console.error('Err:', message);
     } else {
-        console.log(date.toISOString(), '- Inf:', message);
+        console.log('Inf:', message);
     }
 
     if (!session_error && status_cb) {

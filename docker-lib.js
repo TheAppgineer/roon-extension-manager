@@ -246,10 +246,16 @@ ApiExtensionInstallerDocker.prototype.start = function(name, fd) {
     });
 }
 
+ApiExtensionInstallerDocker.prototype.restart = function(name, cb) {
+    const container = docker.getContainer(name);
+
+    container.restart({ t: 10 });
+}
+
 ApiExtensionInstallerDocker.prototype.stop = function(name, cb) {
     const container = docker.getContainer(name);
 
-    container.stop((err) => {
+    container.stop({ t: 10 }, (err) => {
         container.inspect((err, info) => {
             if (info) {
                 states[name] = info.State.Status;
@@ -274,21 +280,27 @@ ApiExtensionInstallerDocker.prototype.terminate = function(name, cb) {
     }
 }
 
-ApiExtensionInstallerDocker.prototype.log = function(name, fd) {
+ApiExtensionInstallerDocker.prototype.get_log = function(name, path, cb) {
     const container = docker.getContainer(name);
     const options = {
-        follow: true,
-        stdout: true,
-        stderr: true,
-        since:  Date.now() / 1000
+        follow:     true,   // 'false' gives a stream without statusCode
+        stdout:     true,
+        stderr:     true,
+        until:      Date.now() / 1000,
+        timestamps: true
     };
 
-    fd && container.logs(options, (err, stream) => {
+    path && container.logs(options, (err, stream) => {
         if (stream && stream.statusCode == 200) {
             const fs = require('fs');
-            let log_stream = fs.createWriteStream(undefined, {fd: fd});
+            let log_stream = fs.createWriteStream(path, { mode: 0o644 });
 
+            console.log('');     // Doesn't work without this extra log
             container.modem.demuxStream(stream, log_stream, log_stream);
+            stream.on('end', () => {
+                log_stream.end();
+                cb && cb();
+            });
         }
     });
 }

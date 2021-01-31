@@ -1,4 +1,4 @@
+.rem
+log
 node_modules
 config.json
-running.json
-logging.json
