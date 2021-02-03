@@ -1,7 +1,7 @@
 version: '2.4'
 services:
   rem:
-    image: roon-extension-manager:latest
+    image: theappgineer/roon-extension-manager:v1.x
     container_name: roon-extension-manager
     group_add:
       - ${DOCKER_GID}
@@ -12,5 +12,7 @@ services:
     environment:
       - TZ=${TZ}
     network_mode: host
+    logging:
+      driver: journald
 volumes:
   rem_data:
