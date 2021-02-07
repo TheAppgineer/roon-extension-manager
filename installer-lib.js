@@ -58,6 +58,7 @@ const log_dir = 'log/';
 const data_root = `${process.cwd()}/.rem/`;
 const repos_dir = 'repos/';
 const binds_dir = 'binds/';
+const perform_update = 66;
 
 const fs = require('fs');
 const ApiExtensionInstallerDocker = require('./docker-lib');
@@ -110,14 +111,16 @@ function ApiExtensionInstaller(callbacks, features_file) {
             docker = new ApiExtensionInstallerDocker((err, installed) => {
                 if (err) {
                     _set_status('Extension Manager requires Docker!', true);
+                } else if (!installed[MANAGER_NAME]) {
+                    _set_status('Extension Manager should run in Docker!', true);
                 } else {
                     _set_status(`Docker for Linux found: Version ${docker.get_status().version}`, false);
 
                     docker_installed = installed;
-                }
 
-                // Get extension repository
-                _queue_action(REPOS_NAME, { action: ACTION_INSTALL });
+                    // Get extension repository
+                    _queue_action(REPOS_NAME, { action: ACTION_INSTALL });
+                }
 
                 callbacks.started && callbacks.started();
             });
@@ -201,18 +204,18 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
         if (extension.image) {
             options = docker.get_install_options(extension.image);
         }
+    } else if (name == REPOS_NAME) {
+        actions.push(_create_action_pair(ACTION_UPDATE));
     } else {
-        if (name == REPOS_NAME) {
+        if (updates_list[name]) {
             actions.push(_create_action_pair(ACTION_UPDATE));
-        } else if (name == MANAGER_NAME) {
+        }
+
+        if (name == MANAGER_NAME) {
             if (state == 'running') {
                 actions.push(_create_action_pair(ACTION_RESTART));
             }
         } else {
-            if (updates_list[name]) {
-                actions.push(_create_action_pair(ACTION_UPDATE));
-            }
-
             actions.push(_create_action_pair(ACTION_UNINSTALL));
 
             if (state == 'running') {
@@ -534,17 +537,23 @@ function _register_version(name, update, err) {
             _set_status((update ? 'Updated: ' : 'Installed: ') + name + ' (' + version + ')', false);
         }
 
-        if (update) {
-            const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
-
-            if (state != 'stopped') {
-                _start(name);
+        if (name == MANAGER_NAME) {
+            if (!err) {
+                process.exit(perform_update);
             }
         } else {
-            _start(name);
-        }
+            if (update) {
+                const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
 
-        _query_updates(null, name);
+                if (state != 'stopped') {
+                    _start(name);
+                }
+            } else {
+                _start(name);
+            }
+
+            _query_updates(null, name);
+        }
     }
 
     // Update administration
@@ -553,18 +562,28 @@ function _register_version(name, update, err) {
 }
 
 function _update(name, cb) {
-    if (name && name != MANAGER_NAME) {
-        _stop(name, false, () => {
-            _set_status("Updating: " + name + "...", false);
+    if (name) {
+        if (name == MANAGER_NAME) {
+            if (docker_installed[name]) {
+                _set_status("Updating: " + name + "...", false);
 
-            if (name == REPOS_NAME) {
-                _update_repository();
-            } else if (docker_installed[name]) {
                 docker.update(name, (err) => {
                     cb && cb(name, err);
                 });
             }
-        });
+        } else {
+            _stop(name, false, () => {
+                _set_status("Updating: " + name + "...", false);
+
+                if (name == REPOS_NAME) {
+                    _update_repository();
+                } else if (docker_installed[name]) {
+                    docker.update(name, (err) => {
+                        cb && cb(name, err);
+                    });
+                }
+            });
+        }
     }
 }
 
@@ -622,7 +641,7 @@ function _start(name) {
 
 function _restart(name) {
     if (name == MANAGER_NAME) {
-        docker.restart(name);
+        process.exit(0);
     } else {
         _stop(name, false, () => {
             _start(name);
@@ -631,9 +650,11 @@ function _restart(name) {
 }
 
 function _stop(name, user, cb) {
-    _set_status("Terminating process: " + name + "...", false);
+    const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
 
-    if (docker_installed[name]) {
+    if (docker_installed[name] && state == 'running') {
+        _set_status("Terminating process: " + name + "...", false);
+
         if (user) {
             docker.stop(name, () => {
                 _set_status("Stopped: " + name, false);
@@ -695,7 +716,7 @@ function _perform_action() {
                 _install(name, action_queue[name].options, _register_installed_version);
                 break;
             case ACTION_UPDATE:
-                if (name == MANAGER_NAME || name == REPOS_NAME) {
+                if (name == REPOS_NAME) {
                     _update(name);
                 } else {
                     _update(name, _register_updated_version);
@@ -716,10 +737,19 @@ function _perform_action() {
 
 function _queue_updates(updates) {
     if (updates && Object.keys(updates).length) {
+        let self_update_pending = false;
+
         for (const name in updates) {
-            if (name != MANAGER_NAME) {
+            if (name == MANAGER_NAME) {
+                self_update_pending = true;
+            } else {
                 _queue_action(name, { action: ACTION_UPDATE });
             }
+        }
+
+        if (self_update_pending) {
+            // Perform manager actions last
+            _queue_action(MANAGER_NAME, { action: ACTION_UPDATE });
         }
     } else {
         console.log("No updates found");
@@ -733,7 +763,7 @@ function _query_updates(cb, name) {
         docker.query_updates((updates) => {
             for (const name in updates) {
                 // Only images that are included in the repository
-                if (name != MANAGER_NAME && _get_index_pair(name)) {
+                if (_get_index_pair(name)) {
                     results[name] = updates[name];
                     updates_list[name] = updates[name];
                 }
