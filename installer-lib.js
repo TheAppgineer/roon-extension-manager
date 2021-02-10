@@ -632,10 +632,8 @@ function _get_log(index, cb) {
 }
 
 function _start(name) {
-    let fd;
-
     if (docker_installed[name]) {
-        docker.start(name, fd);
+        docker.start(name);
     }
 
     _set_status("Started: " + name, false);

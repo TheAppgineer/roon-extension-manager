@@ -231,7 +231,7 @@ ApiExtensionInstallerDocker.prototype.uninstall = function(name, cb) {
     });
 }
 
-ApiExtensionInstallerDocker.prototype.start = function(name, fd) {
+ApiExtensionInstallerDocker.prototype.start = function(name) {
     const container = docker.getContainer(name);
 
     container.start((err) => {
@@ -239,8 +239,6 @@ ApiExtensionInstallerDocker.prototype.start = function(name, fd) {
             if (info) {
                 states[name] = info.State.Status;
                 container.update({ RestartPolicy: { Name: "unless-stopped", MaximumRetryCount: 0 } });
-
-                ApiExtensionInstallerDocker.prototype.log.call(this, name, fd);
             }
         });
     });
