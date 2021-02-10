@@ -206,24 +206,26 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
         }
     } else if (name == REPOS_NAME) {
         actions.push(_create_action_pair(ACTION_UPDATE));
+    } else if (name == MANAGER_NAME) {
+        if (updates_list[name] && (!features || features.self_update != 'off')) {
+            actions.push(_create_action_pair(ACTION_UPDATE));
+        }
+
+        if (state == 'running') {
+            actions.push(_create_action_pair(ACTION_RESTART));
+        }
     } else {
         if (updates_list[name]) {
             actions.push(_create_action_pair(ACTION_UPDATE));
         }
 
-        if (name == MANAGER_NAME) {
-            if (state == 'running') {
-                actions.push(_create_action_pair(ACTION_RESTART));
-            }
-        } else {
-            actions.push(_create_action_pair(ACTION_UNINSTALL));
+        actions.push(_create_action_pair(ACTION_UNINSTALL));
 
-            if (state == 'running') {
-                actions.push(_create_action_pair(ACTION_RESTART));
-                actions.push(_create_action_pair(ACTION_STOP));
-            } else {
-                actions.push(_create_action_pair(ACTION_START));
-            }
+        if (state == 'running') {
+            actions.push(_create_action_pair(ACTION_RESTART));
+            actions.push(_create_action_pair(ACTION_STOP));
+        } else {
+            actions.push(_create_action_pair(ACTION_START));
         }
     }
 
@@ -741,7 +743,7 @@ function _queue_updates(updates) {
 
         for (const name in updates) {
             if (name == MANAGER_NAME) {
-                self_update_pending = true;
+                self_update_pending = (!features || features.self_update != 'off');
             } else {
                 _queue_action(name, { action: ACTION_UPDATE });
             }
