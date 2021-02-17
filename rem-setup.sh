@@ -17,8 +17,10 @@ DL_SCRPT='Downloading shell script...\t\t'
 DTECT_TZ='Detecting timezone...\t\t\t'
 SETUP_SV='Setting up service...\t\t\t'
 START_SV='Starting service...\t\t\t'
+WAIT_VOL='Waiting for volume creation...\t\t'
+SET_UDEV='Setting udev rule for CD Ripper...\t'
 
-echo $NAME setup script - version $VERSION
+echo Roon Extension Manager setup script - version $VERSION
 echo
 
 if [ "$1" = "--version" ]; then
@@ -46,7 +48,8 @@ if [ "$1" = "--uninstall" ]; then
     # Remove service
     systemctl --quiet stop $NAME
     systemctl --quiet disable $NAME
-    rm /etc/systemd/system/$NAME.service
+    rm -f /etc/systemd/system/$NAME.service
+    rm -f /etc/udev/rules.d/80-audio-cd.rules
 
     # Remove files
     rm -rf "$ROOT_DIR"
@@ -66,12 +69,14 @@ if [ $? -gt 0 ]; then
 fi
 echo -e $OK
 
-groups $USR | grep $GRP > /dev/null 2>&1
-if [ $? -gt 0 ]; then
-    # Add user to docker group
-    echo -ne $ADD_USER
-    usermod -aG docker $USR
-    echo -e $OK
+if [ $USR != "root" ]; then
+    groups $USR | grep $GRP > /dev/null 2>&1
+    if [ $? -gt 0 ]; then
+        # Add user to docker group
+        echo -ne $ADD_USER
+        usermod -aG docker $USR
+        echo -e $OK
+    fi
 fi
 
 if [ -d $HOME/.RoonExtensions ]; then
@@ -105,6 +110,7 @@ if [ ! -f "$NAME.sh" ]; then
     mv $NAME.sh $ROOT_DIR
     echo -e $OK
 else
+    chmod +x $NAME.sh
     su -c "cp $NAME.sh $ROOT_DIR" $USR
 fi
 
@@ -113,11 +119,11 @@ if [ ! -f "/etc/systemd/system/$NAME.service" ]; then
         # Detect timezone
         echo -ne $DTECT_TZ
 
-        which timedatectl > /dev/null 2>&1
+        timedatectl > /dev/null 2>&1
         if [ $? -eq 0 ]; then
             TZ=$(timedatectl | sed -n 's/^\s*Time zone: \(.*\) (.*/\1/p')
             echo -e $OK
-        elif [ -f /etc/timezone]; then
+        elif [ -f /etc/timezone ]; then
             TZ=$(cat /etc/timezone)
             echo -e $OK
         else
@@ -165,6 +171,30 @@ systemctl --quiet enable $NAME
 systemctl --quiet start $NAME
 
 echo -e $OK
+
+# Wait for volume creation
+echo -ne $WAIT_VOL
+
+until docker volume inspect rem_data > /dev/null 2>&1; do
+    sleep 1s
+done
+echo -e $OK
+
+if [ ! -f "/etc/udev/rules.d/80-audio-cd.rules" ]; then
+    # Set udev rule for CD Ripper
+    echo -ne $SET_UDEV
+
+    mkdir -p /etc/udev/rules.d/
+    VOLUME=$(docker volume inspect -f {{.Mountpoint}} rem_data)
+
+    echo "SUBSYSTEM==\"block\", SUBSYSTEMS==\"scsi\", KERNEL==\"sr?\", ENV{ID_TYPE}==\"cd\", ENV{ID_CDROM}==\"?*\", ENV{ID_CDROM_MEDIA_TRACK_COUNT_AUDIO}==\"?*\", ACTION==\"change\", RUN+=\"/bin/su -lc 'echo 1 > $VOLUME/binds/roon-extension-cd-ripper/root/inserted' root\"" > /etc/udev/rules.d/80-audio-cd.rules
+    if [ $? -gt 0 ]; then
+        echo -e $FAIL
+    else
+        udevadm control --reload-rules && udevadm trigger
+        echo -e $OK
+    fi
+fi
 
 echo
 echo "Roon Extension Manager installed successfully!"
