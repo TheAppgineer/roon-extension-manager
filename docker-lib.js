@@ -20,8 +20,9 @@ var docker;
 var docker_version;
 var installed = {};
 var states = {};
+var on_progress_cb;
 
-function ApiExtensionInstallerDocker(cb) {
+function ApiExtensionInstallerDocker(cbs) {
     docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
     docker.version((err, version) => {
@@ -30,13 +31,14 @@ function ApiExtensionInstallerDocker(cb) {
                 docker_version = version;
 
                 _query_installs((err, installed) => {
-                    cb && cb(err, installed);
+                    on_progress_cb = cbs.on_progress;
+                    cbs && cbs.on_startup && cbs.on_startup(err, installed);
                 });
             } else {
-                cb && cb('Host OS not supported: ' + version.Os);
+                cbs && cbs.on_startup && cbs.on_startup('Host OS not supported: ' + version.Os);
             }
         } else {
-            cb && cb('Docker not found');
+            cbs && cbs.on_startup && cbs.on_startup('Docker not found');
         }
     });
 }
@@ -390,7 +392,40 @@ function _install(repo_tag_string, config, cb) {
         if (err) {
             cb && cb(err);
         } else {
-            docker.modem.followProgress(stream, /* onFinished */ (err, output) => {
+            let layer_status = {};
+            docker.modem.followProgress(stream, on_finished, on_progress);
+
+            function on_progress(event) {
+                /*  {
+                 *      status: 'Extracting',
+                 *      progressDetail: { current: 9338880, total: 47926421 },
+                 *      progress: '[=========>                                         ]  9.339MB/47.93MB',
+                 *      id: '6a012575f640'
+                 *  }
+                 */
+                if (event.progress) {
+                    const status = event.status;
+                    let progress;
+
+                    progress = event.progress.split('] ');
+                    progress = (progress.length > 1 ? progress[1].trim() : undefined);
+
+                    const progress_split = progress.split('/');
+                    if (progress_split[0] == progress_split[1]) {
+                        delete layer_status[event.id];
+                    } else {
+                        layer_status[event.id] = { status, progress };
+                    }
+                } else if (layer_status[event.id]) {
+                    delete layer_status[event.id];
+                }
+
+                if (Object.keys(layer_status).length) {
+                    on_progress_cb && on_progress_cb(layer_status);
+                }
+            }
+
+            function on_finished(err, output) {
                 const final_status = output[output.length - 1].status;
                 const name = _split(repo_tag_string).repo;
 
@@ -414,7 +449,7 @@ function _install(repo_tag_string, config, cb) {
                         _create_container(config, cb);
                     }
                 }
-            });
+            }
         }
     });
 }

@@ -108,21 +108,36 @@ function ApiExtensionInstaller(callbacks, features_file) {
         } else {
             _set_status("Starting Roon Extension Manager...", false);
 
-            docker = new ApiExtensionInstallerDocker((err, installed) => {
-                if (err) {
-                    _set_status('Extension Manager requires Docker!', true);
-                } else if (!installed[MANAGER_NAME]) {
-                    _set_status('Extension Manager should run in Docker!', true);
-                } else {
-                    _set_status(`Docker for Linux found: Version ${docker.get_status().version}`, false);
+            docker = new ApiExtensionInstallerDocker({
+                on_startup: function(err, installed) {
+                    if (err) {
+                        _set_status('Extension Manager requires Docker!', true);
+                    } else if (!installed[MANAGER_NAME]) {
+                        _set_status('Extension Manager should run in Docker!', true);
+                    } else {
+                        _set_status(`Docker for Linux found: Version ${docker.get_status().version}`, false);
 
-                    docker_installed = installed;
+                        docker_installed = installed;
 
-                    // Get extension repository
-                    _queue_action(REPOS_NAME, { action: ACTION_INSTALL });
+                        // Get extension repository
+                        _queue_action(REPOS_NAME, { action: ACTION_INSTALL });
+                    }
+
+                    callbacks.started && callbacks.started();
+                },
+                on_progress: function(layer_status) {
+                    const name = [Object.keys(action_queue)[0]];
+                    let status_string = (action_queue[name].action == ACTION_UPDATE ? 'Updating' : 'Installing');
+
+                    status_string += `: ${name}`;
+
+                    for (const layer in layer_status) {
+                        status_string += `\n${layer_status[layer].status} layer: `;
+                        status_string += layer_status[layer].progress;
+                    }
+
+                    _set_status(status_string);
                 }
-
-                callbacks.started && callbacks.started();
             });
         }
     });
@@ -296,6 +311,10 @@ function _update_repository() {
     _download_repository((data) => {
         if (data) {
             const parsed = JSON.parse(data);
+            // TODO: Check layout compatibility:
+            // Equal major (major indicates breaking layout change)
+            // Less or equal minor (minor indicates backwards compatible layout change, e.g. addition of new field)
+            // Not equal revision (revision indicates addition of extension)
             const changed = (repos == undefined ||
                              (parsed.version != repos.version && parsed.version >= MIN_REPOS_VERSION));
 
