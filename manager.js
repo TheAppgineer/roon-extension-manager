@@ -414,6 +414,8 @@ function update_pending_actions(settings) {
 
         // Cleanup
         delete settings["action"];
+    } else if (pending_actions[name] && options && options[name]) {
+        pending_actions[name].options = options[name];
     }
 }
 
