@@ -65,7 +65,7 @@ const ApiExtensionInstallerDocker = require('./docker-lib');
 
 var docker;
 var features;
-var repos;
+var repos = {};
 var index_cache = {};
 var docker_installed = {};
 var containerized;
@@ -109,13 +109,13 @@ function ApiExtensionInstaller(callbacks, features_file) {
             _set_status("Starting Roon Extension Manager...", false);
 
             docker = new ApiExtensionInstallerDocker({
-                on_startup: function(err, installed) {
+                on_startup: function(err, installed, version) {
                     if (err) {
                         _set_status('Extension Manager requires Docker!', true);
                     } else if (!installed[MANAGER_NAME]) {
                         _set_status('Extension Manager should run in Docker!', true);
                     } else {
-                        _set_status(`Docker for Linux found: Version ${docker.get_status().version}`, false);
+                        _set_status(`Docker for Linux found: Version ${version}`, false);
 
                         docker_installed = installed;
 
@@ -360,14 +360,20 @@ function _download_repository(cb) {
 function _load_repository(new_repo) {
     const local_repos = data_root + repos_dir;
 
-    repos = new_repo;
-    repos.categories.unshift(repos_system);
+    repos.version = new_repo.version;
+    repos.categories = [];
+    repos.categories.push(repos_system);
+    _add_to_repository(new_repo.categories, repos.categories);
 
     fs.readdir(local_repos, (err, files) => {
         if (!err) {
             for(let i = 0; i < files.length; i++) {
-                _add_to_repository(local_repos + files[i], repos.categories);
-            };
+                if (files[i].includes('.json')) {
+                    const new_repo = _read_JSON_file_sync(local_repos + files[i]);
+
+                    _add_to_repository(new_repo, repos.categories);
+                }
+            }
         }
 
         if (repos.categories.length) {
@@ -399,42 +405,36 @@ function _load_repository(new_repo) {
     });
 }
 
-function _add_to_repository(file, base) {
-    if (file.includes('.json')) {
-        const new_repo = _read_JSON_file_sync(file);
+function _add_to_repository(new_repo, base) {
+    if (new_repo) {
+        for (let i = 0; i < new_repo.length; i++) {
+            let filtered = {
+                display_name: new_repo[i].display_name,
+                extensions: []
+            };
+            let j;
 
-        if (new_repo) {
-            const docker_install_active = (docker.get_status().version ? true : false);
-
-            for (let i = 0; i < new_repo.length; i++) {
-                let filtered = {
-                    display_name: new_repo[i].display_name,
-                    extensions: []
-                };
-                let j;
-
-                // Is the install type available and active?
-                for (j = 0; j < new_repo[i].extensions.length; j++) {
-                    if (new_repo[i].extensions[j].image && docker_install_active) {
-                        filtered.extensions.push(new_repo[i].extensions[j]);
-                    }
+            // Is the architecture type available?
+            for (j = 0; j < new_repo[i].extensions.length; j++) {
+                if (new_repo[i].extensions[j].image.tags[docker.get_arch()]) {
+                    filtered.extensions.push(new_repo[i].extensions[j]);
                 }
+            }
 
-                // Does category already exist?
-                for (j = 0; j < base.length; j++) {
-                    if (base[j].display_name == filtered.display_name) {
-                        break;
-                    }
+            // Does category already exist?
+            for (j = 0; j < base.length; j++) {
+                if (base[j].display_name == filtered.display_name) {
+                    break;
                 }
+            }
 
-                if (filtered.extensions.length) {
-                    if (j === base.length) {
-                        // New category
-                        base.push(filtered);
-                    } else {
-                        // Add to existing category
-                        base[j].extensions = base[j].extensions.concat(filtered.extensions);
-                    }
+            if (filtered.extensions.length) {
+                if (j === base.length) {
+                    // New category
+                    base.push(filtered);
+                } else {
+                    // Add to existing category
+                    base[j].extensions = base[j].extensions.concat(filtered.extensions);
                 }
             }
         }

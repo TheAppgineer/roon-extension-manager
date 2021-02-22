@@ -28,11 +28,14 @@ function ApiExtensionInstallerDocker(cbs) {
     docker.version((err, version) => {
         if (!err && version.Version) {
             if (version.Os == 'linux') {
-                docker_version = version;
+                docker_version = {
+                    version: version.Version,
+                    arch:    version.Arch
+                };
 
                 _query_installs((err, installed) => {
                     on_progress_cb = cbs.on_progress;
-                    cbs && cbs.on_startup && cbs.on_startup(err, installed);
+                    cbs && cbs.on_startup && cbs.on_startup(err, installed, version.Version);
                 });
             } else {
                 cbs && cbs.on_startup && cbs.on_startup('Host OS not supported: ' + version.Os);
@@ -43,35 +46,32 @@ function ApiExtensionInstallerDocker(cbs) {
     });
 }
 
+ApiExtensionInstallerDocker.prototype.get_arch = function() {
+    return docker_version.arch;
+}
+
 ApiExtensionInstallerDocker.prototype.get_status = function(name) {
-    let version;
-    let tag;
-    let state;
-
     if (name) {
-        tag = installed[name];
-    } else if (docker_version) {
-        version = docker_version.Version;
-    }
+        const tag = installed[name];
+        let state;
 
-    state = (tag ? 'installed' : 'not_installed');
+        state = (tag ? 'installed' : 'not_installed');
 
-    if (state == 'installed') {
-        // Get container state
-        state = states[name];
+        if (state == 'installed') {
+            // Get container state
+            state = states[name];
 
-        if (state == 'created' || state == 'exited') {
-            // Convert Docker specific states to generic stopped state
-            state = 'stopped';
+            if (state == 'created' || state == 'exited') {
+                // Convert Docker specific states to generic stopped state
+                state = 'stopped';
+            }
         }
-    }
 
-    return {
-        state:   state,
-        version: version,
-        tag:     tag,
-        logging: undefined
-    };
+        return {
+            state:   state,
+            tag:     tag
+        };
+    }
 }
 
 ApiExtensionInstallerDocker.prototype.get_name = function(image) {
@@ -84,8 +84,8 @@ ApiExtensionInstallerDocker.prototype.get_install_options = function(image) {
 }
 
 ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, options, cb) {
-    if (docker_version && image && image.tags[docker_version.Arch]) {
-        const repo_tag_string = image.repo + ':' + image.tags[docker_version.Arch];
+    if (docker_version && image && image.tags[docker_version.arch]) {
+        const repo_tag_string = image.repo + ':' + image.tags[docker_version.arch];
         let config = {};
 
         if (image.config) {
@@ -173,7 +173,7 @@ ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, opti
             _install(repo_tag_string, config, cb);
         }
     } else {
-        cb && cb(`No image available for "${docker_version.Arch}" architecture`);
+        cb && cb(`No image available for "${docker_version.arch}" architecture`);
     }
 }
 
