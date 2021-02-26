@@ -37,7 +37,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "1.0.0-beta1",
+    display_version:     "1.0.0-beta2",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,

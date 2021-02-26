@@ -547,15 +547,15 @@ function _register_updated_version(name, err) {
 }
 
 function _register_version(name, update, err) {
-    const version = docker_installed[name];
+    const tag = docker_installed[name];
 
     if (err && err != 'already up to date') {
         _set_status((update ? 'Update' : 'Installation') + ' failed: ' + name, true);
-    } else if (version) {
+    } else if (tag) {
         if (err) {
             _set_status(`${name} ${err}`, false);
         } else {
-            _set_status((update ? 'Updated: ' : 'Installed: ') + name + ' (' + version + ')', false);
+            _set_status((update ? 'Updated: ' : 'Installed: ') + name + ' (' + tag + ')', false);
         }
 
         if (name == MANAGER_NAME) {
@@ -590,7 +590,7 @@ function _update(name, cb) {
 
                 docker.update(name, (err) => {
                     cb && cb(name, err);
-                });
+                }, true);
             }
         } else {
             _stop(name, false, () => {

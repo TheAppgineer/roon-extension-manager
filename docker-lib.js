@@ -191,7 +191,7 @@ ApiExtensionInstallerDocker.prototype.query_updates = function(cb, name) {
     }
 }
 
-ApiExtensionInstallerDocker.prototype.update = function(name, cb) {
+ApiExtensionInstallerDocker.prototype.update = function(name, cb, pull_only) {
     const container = docker.getContainer(name);
 
     container.inspect((err, info) => {
@@ -200,7 +200,7 @@ ApiExtensionInstallerDocker.prototype.update = function(name, cb) {
             let config = info.Config;
             config.HostConfig = info.HostConfig;
 
-            _install(image_name, config, cb);
+            _install(image_name, config, cb, pull_only);
         } else {
             cb && cb(err);
         }
@@ -387,7 +387,7 @@ function _create_bind_path_and_file(config, bind_props, binds, count, cb) {
     }
 }
 
-function _install(repo_tag_string, config, cb) {
+function _install(repo_tag_string, config, cb, pull_only) {
     docker.pull(repo_tag_string, (err, stream) => {
         if (err) {
             cb && cb(err);
@@ -431,7 +431,7 @@ function _install(repo_tag_string, config, cb) {
 
                 if (installed[name] && final_status == `Status: Image is up to date for ${repo_tag_string}`) {
                     cb && cb('already up to date');
-                } else {
+                } else if (!pull_only) {
                     config.name  = name;
                     config.Image = repo_tag_string;
 
@@ -448,6 +448,8 @@ function _install(repo_tag_string, config, cb) {
                     } else {
                         _create_container(config, cb);
                     }
+                } else {
+                    cb && cb();
                 }
             }
         }
