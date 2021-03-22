@@ -1,8 +1,7 @@
 #!/bin/bash
 
 NAME=rem
-VERSION=1.0.0-beta1
-ROOT_DIR=$HOME/.$NAME
+VERSION=1.0.0-beta2
 
 OK="[ \e[32mOK\e[0m ]"
 FAIL="[\e[31mFAIL\e[0m]"
@@ -40,6 +39,8 @@ if [ -z "$USR" ]; then
     fi
 fi
 echo -e $OK
+
+ROOT_DIR=$(eval echo ~$USR)/.$NAME
 
 if [ "$1" = "--uninstall" ]; then
     # Perform uninstall
