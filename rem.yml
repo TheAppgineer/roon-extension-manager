@@ -1,7 +1,7 @@
 version: '2.4'
 services:
   rem:
-    image: theappgineer/roon-extension-manager:v1.x
+    image: theappgineer/roon-extension-manager:v1.x-standalone
     container_name: roon-extension-manager
     group_add:
       - ${DOCKER_GID}

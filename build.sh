@@ -1,23 +1,19 @@
 #!/bin/bash
 
-if [ "$#" -eq 0 ]; then
-    ARCH=$(docker version --format '{{.Server.Arch}}')
+ARCH=$(docker version --format '{{.Server.Arch}}')
 
-    if [ "$ARCH" = "amd64" ]; then
-        TAG=v1.x-amd64
-    elif [ "$ARCH" = "arm" ]; then
-        TAG=v1.x-arm32v7
-    else
-        echo "Unsupported architecture"
-        exit 1
-    fi
+if [ "$ARCH" = "arm" ]; then
+    ARCH=arm32v7
+fi
+
+if [ "$#" -gt 1 ]; then
+    TAG=$1-$2-$ARCH
+    VARIANT=$2.
+elif [ "$#" -gt 0 ]; then
+    TAG=$1-$ARCH
 else
-    if [ "$#" -ge 2 ]; then
-        TAG=$1-$2
-        VARIANT=$2.
-    else
-        TAG=$1
-    fi
+    echo "Usage: $0 <version> <variant>"
+    exit 1
 fi
 
 echo $TAG

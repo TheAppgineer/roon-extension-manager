@@ -1,12 +1,23 @@
 #!/bin/bash
 
-docker pull theappgineer/roon-extension-manager:v1.x-arm32v7
+if [ "$#" -gt 1 ]; then
+    TAG=$1-$2
+elif [ "$#" -gt 0 ]; then
+    TAG=$1
+else
+    echo "Usage: $0 <version> <variant>"
+    exit 1
+fi
 
-docker manifest create theappgineer/roon-extension-manager:v1.x \
-    theappgineer/roon-extension-manager:v1.x-amd64 \
-    theappgineer/roon-extension-manager:v1.x-arm32v7
+echo $TAG
 
-docker manifest annotate --arch arm --variant v7 theappgineer/roon-extension-manager:v1.x \
-    theappgineer/roon-extension-manager:v1.x-arm32v7
+docker pull theappgineer/roon-extension-manager:$TAG-arm32v7
 
-docker manifest push --purge theappgineer/roon-extension-manager:v1.x
+docker manifest create theappgineer/roon-extension-manager:$TAG \
+    theappgineer/roon-extension-manager:$TAG-amd64 \
+    theappgineer/roon-extension-manager:$TAG-arm32v7
+
+docker manifest annotate --arch arm --variant v7 theappgineer/roon-extension-manager:$TAG \
+    theappgineer/roon-extension-manager:$TAG-arm32v7
+
+docker manifest push --purge theappgineer/roon-extension-manager:$TAG
