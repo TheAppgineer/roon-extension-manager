@@ -14,7 +14,7 @@
             ],
 	     "options": {
                 "devices": [
-                    ":USB Device Path"
+                    "/dev/bus/usb/:USB Device Path"
                 ]
             }
         }
