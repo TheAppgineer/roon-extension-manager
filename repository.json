@@ -1,0 +1,22 @@
+[{
+    "display_name": "Test",
+    "extensions": [{
+        "author": "Klaus Engel",
+        "display_name": "SpaceNavigator Volume Control",
+        "description": "A volume control Roon Extension for the SpaceNavigator space mouse.",
+        "image": {
+            "repo": "klausengel/roon-spacenav",
+            "tags": {
+                "arm": "arm"
+            },
+            "binds": [
+                "/home/node/config.json"
+            ],
+	     "options": {
+                "devices": [
+                    ":USB Device Path"
+                ]
+            }
+        }
+    }]
+}]
