@@ -21,21 +21,18 @@ const REPOS_NAME   = 'roon-extension-repository';
 
 const MIN_REPOS_VERSION = "1.0.0"
 
-const repos_system = {
-    display_name: SYSTEM_NAME,
-    extensions: [{
-        name: MANAGER_NAME,
-        author: "The Appgineer",
-        display_name: "Extension Manager",
-        description: "Roon Extension for managing Roon Extensions"
-    },
-    {
-        name: REPOS_NAME,
-        author: "The Appgineer",
-        display_name: "Extension Repository",
-        description: "Repository of (community developed) Roon Extensions"
-    }]
-};
+const system_extensions = [{
+    name: MANAGER_NAME,
+    author: "The Appgineer",
+    display_name: "Extension Manager",
+    description: "Roon Extension for managing Roon Extensions"
+},
+{
+    name: REPOS_NAME,
+    author: "The Appgineer",
+    display_name: "Extension Repository",
+    description: "Repository of (community developed) Roon Extensions"
+}];
 
 const ACTION_INSTALL = 1;
 const ACTION_UPDATE = 2;
@@ -361,8 +358,11 @@ function _load_repository(new_repo) {
     const local_repos = data_root + repos_dir;
 
     repos.version = new_repo.version;
-    repos.categories = [];
-    repos.categories.push(repos_system);
+    repos.categories = [{ display_name: SYSTEM_NAME }];
+
+    // Use concat to create a clone of the system_extensions array
+    repos.categories[0].extensions = [].concat(system_extensions);
+
     _add_to_repository(new_repo.categories, repos.categories);
 
     fs.readdir(local_repos, (err, files) => {
