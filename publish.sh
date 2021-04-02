@@ -12,10 +12,12 @@ fi
 echo $TAG
 
 docker pull theappgineer/roon-extension-manager:$TAG-arm32v7
+docker pull theappgineer/roon-extension-manager:$TAG-arm64
 
 docker manifest create theappgineer/roon-extension-manager:$TAG \
     theappgineer/roon-extension-manager:$TAG-amd64 \
-    theappgineer/roon-extension-manager:$TAG-arm32v7
+    theappgineer/roon-extension-manager:$TAG-arm32v7 \
+    theappgineer/roon-extension-manager:$TAG-arm64
 
 docker manifest annotate --arch arm --variant v7 theappgineer/roon-extension-manager:$TAG \
     theappgineer/roon-extension-manager:$TAG-arm32v7

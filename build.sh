@@ -20,4 +20,7 @@ echo $TAG
 echo ${VARIANT}Dockerfile
 
 docker build --rm -t theappgineer/roon-extension-manager:$TAG -f ${VARIANT}Dockerfile .
-docker push theappgineer/roon-extension-manager:$TAG
+
+if [ $? -eq 0 ]; then
+    docker push theappgineer/roon-extension-manager:$TAG
+fi
