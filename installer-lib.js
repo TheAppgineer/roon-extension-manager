@@ -22,10 +22,17 @@ const REPOS_NAME   = 'roon-extension-repository';
 const MIN_REPOS_VERSION = "1.0.0"
 
 const system_extensions = [{
-    name: MANAGER_NAME,
     author: "The Appgineer",
     display_name: "Extension Manager",
-    description: "Roon Extension for managing Roon Extensions"
+    description: "Roon Extension for managing Roon Extensions",
+    image: {
+        repo: `theappgineer/${MANAGER_NAME}`,
+        tags: {
+            amd64: "latest",
+            arm:   "latest",
+            arm64: "latest"
+        }
+    }
 },
 {
     name: REPOS_NAME,
@@ -65,7 +72,7 @@ var features;
 var repos = {};
 var index_cache = {};
 var docker_installed = {};
-var containerized;
+var install_options;
 var updates_list = {};
 var action_queue = {};
 var session_error;
@@ -95,8 +102,11 @@ function ApiExtensionInstaller(callbacks, features_file) {
     }
 
     if (!features && data_root) {
-        features = _read_JSON_file_sync(data_root + 'features.json');
+        features = _read_JSON_file_sync(`${data_root}features.json`);
     }
+
+    // Load install_options from file
+    install_options = _read_JSON_file_sync(`${data_root}install-options.json`) || {};
 
     // Create log directory
     mkdirp(log_dir, (err, made) => {
@@ -449,11 +459,6 @@ function _get_docker_installed_extensions(installed) {
             // Only images that are included in the repository
             if (_get_index_pair(name)) {
                 installed_extensions[name] = installed[name];
-
-                if (name == MANAGER_NAME) {
-                    // Looks like we're running in a container
-                    containerized = true;
-                }
             }
         }
     }
@@ -504,6 +509,14 @@ function _get_index_pair(name) {
     return index_pair;
 }
 
+function get_bind_props(name) {
+    return {
+        root:       data_root,
+        binds_path: binds_dir + name,
+        name:       MANAGER_NAME
+    };
+};
+
 function _get_extension(name) {
     const index_pair = _get_index_pair(name);
 
@@ -517,15 +530,12 @@ function _install(name, options, cb) {
 
             _update_repository();
         } else {
-            const bind_props = {
-                root:       data_root,
-                binds_path: binds_dir + name,
-                name:       (containerized ? MANAGER_NAME : undefined)
-            };
-
             _set_status(`Installing: ${name}...`, false);
 
-            docker.install(_get_extension(name).image, bind_props, options, (err, tag) => {
+            // Store options for future update requests
+            install_options[name] = options;
+
+            docker.install(_get_extension(name).image, get_bind_props(name), options, (err, tag) => {
                 if (err) {
                     _set_status(`Installation failed: ${name}\n${err}`, true);
                 } else {
@@ -584,27 +594,36 @@ function _register_version(name, update, err) {
 
 function _update(name, cb) {
     if (name) {
-        if (name == MANAGER_NAME) {
-            if (docker_installed[name]) {
-                _set_status("Updating: " + name + "...", false);
+        _stop(name, false, () => {
+            _set_status("Updating: " + name + "...", false);
 
-                docker.update(name, (err) => {
-                    cb && cb(name, err);
-                }, true);
-            }
-        } else {
-            _stop(name, false, () => {
-                _set_status("Updating: " + name + "...", false);
+            if (name == REPOS_NAME) {
+                _update_repository();
+            } else if (docker_installed[name]) {
+                const image = _get_extension(name).image;
+                const bind_props = get_bind_props(name);
+                const options = install_options[name];
 
-                if (name == REPOS_NAME) {
-                    _update_repository();
-                } else if (docker_installed[name]) {
-                    docker.update(name, (err) => {
+                if (options) {
+                    docker.install(image, bind_props, options, (err) => {
                         cb && cb(name, err);
                     });
+                } else {
+                    docker.get_options_from_container(image, (err, options) => {
+                        if (err) {
+                            cb && cb(name, err);
+                        } else {
+                            // Store options for future update requests
+                            install_options[name] = options;
+
+                            docker.install(image, bind_props, options, (err) => {
+                                cb && cb(name, err);
+                            });
+                        }
+                    });
                 }
-            });
-        }
+            }
+        });
     }
 }
 
@@ -671,7 +690,7 @@ function _restart(name) {
 function _stop(name, user, cb) {
     const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
 
-    if (docker_installed[name] && state == 'running') {
+    if (docker_installed[name] && name != MANAGER_NAME && state == 'running') {
         _set_status("Terminating process: " + name + "...", false);
 
         if (user) {
@@ -693,6 +712,9 @@ function _stop(name, user, cb) {
 }
 
 function _terminate(exit_code) {
+    // Save install_options to file
+    fs.writeFileSync(`${data_root}install-options.json`, JSON.stringify(install_options));
+
     if (exit_code) {
         process.exit(exit_code);
     } else {
@@ -778,6 +800,11 @@ function _queue_updates(updates) {
 function _query_updates(cb, name) {
     let results = {};
 
+    if (repos && name === undefined) {
+        // Include repository in results
+        results[REPOS_NAME] = repos.version
+    }
+
     if (Object.keys(docker_installed).length) {
         docker.query_updates((updates) => {
             for (const name in updates) {
@@ -787,11 +814,11 @@ function _query_updates(cb, name) {
                     updates_list[name] = updates[name];
                 }
             }
-        }, name);
-    }
 
-    if (cb) {
-        cb(results);
+            cb && cb(results);
+        }, name);
+    } else {
+        cb && cb(results);
     }
 }
 

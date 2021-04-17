@@ -122,6 +122,7 @@ ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, opti
                     });
                 }
             }
+
             if (options.binds) {
                 if (!config.Volumes) {
                     config.Volumes = {};
@@ -191,16 +192,68 @@ ApiExtensionInstallerDocker.prototype.query_updates = function(cb, name) {
     }
 }
 
-ApiExtensionInstallerDocker.prototype.update = function(name, cb, pull_only) {
+ApiExtensionInstallerDocker.prototype.get_options_from_container = function(image, cb) {
+    const name = _split(image.repo).repo;
     const container = docker.getContainer(name);
 
     container.inspect((err, info) => {
-        if (info) {
-            const image_name = info.Config.Image;
-            let config = info.Config;
-            config.HostConfig = info.HostConfig;
+        if (info && info.Config.Image.split(':')[0] == image.repo) {
+            let options = {};
 
-            _install(image_name, config, cb, pull_only);
+            if (image.options) {
+                if (image.options.env && info.Config.Env) {
+                    if (!options.env) {
+                        options.env = {};
+                    }
+
+                    for (const env_var in image.options.env) {
+                        for (let i = 0; i < info.Config.Env.length; i++) {
+                            if (info.Config.Env[i].includes(`${env_var}=`)) {
+                                options.env[env_var] = info.Config.Env[i].split('=')[1];
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (image.options.binds) {
+                    if (!options.binds) {
+                        options.binds = {};
+                    }
+
+                    for (let i = 0; i < image.options.binds.length; i++) {
+                        const bind = image.options.binds[i].split(':')[0];
+
+                        for (let j = 0; j < info.HostConfig.Binds.length; j++) {
+                            const bind_split = info.HostConfig.Binds[j].split(':');
+
+                            if (bind == bind_split[1]) {
+                                options.binds[bind_split[0]] = bind_split[1];
+                            }
+                        }
+                    }
+                }
+
+                if (image.options.devices) {
+                    if (!options.devices) {
+                        options.devices = {};
+                    }
+
+                    for (let i = 0; i < image.options.devices.length; i++) {
+                        const device = image.options.devices[i].split(':')[0];
+
+                        for (let j = 0; j < info.HostConfig.Devices.length; j++) {
+                            const device_object = info.HostConfig.Devices[j];
+
+                            if (device == device_object.PathInContainer) {
+                                options.devices[device_object.PathOnHost] = device_object.PathInContainer;
+                            }
+                        }
+                    }
+                }
+            }
+
+            cb && cb(err, options);
         } else {
             cb && cb(err);
         }
@@ -387,7 +440,7 @@ function _create_bind_path_and_file(config, bind_props, binds, count, cb) {
     }
 }
 
-function _install(repo_tag_string, config, cb, pull_only) {
+function _install(repo_tag_string, config, cb) {
     docker.pull(repo_tag_string, (err, stream) => {
         if (err) {
             cb && cb(err);
@@ -429,9 +482,7 @@ function _install(repo_tag_string, config, cb, pull_only) {
                 const final_status = output[output.length - 1].status;
                 const name = _split(repo_tag_string).repo;
 
-                if (installed[name] && final_status == `Status: Image is up to date for ${repo_tag_string}`) {
-                    cb && cb('already up to date');
-                } else if (!pull_only) {
+                if (config && Object.keys(config).length) {
                     config.name  = name;
                     config.Image = repo_tag_string;
 
@@ -448,6 +499,8 @@ function _install(repo_tag_string, config, cb, pull_only) {
                     } else {
                         _create_container(config, cb);
                     }
+                } else if (final_status == `Status: Image is up to date for ${repo_tag_string}`) {
+                    cb && cb('already up to date');
                 } else {
                     cb && cb();
                 }
