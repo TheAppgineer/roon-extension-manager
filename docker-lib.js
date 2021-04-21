@@ -78,14 +78,8 @@ ApiExtensionInstallerDocker.prototype.get_name = function(image) {
     return _split(image.repo).repo;
 }
 
-ApiExtensionInstallerDocker.prototype.get_install_options = function(image) {
-
-    return (image && image.options ? image.options : undefined);
-}
-
 ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, options, cb) {
     if (docker_version && image && image.tags[docker_version.arch]) {
-        const repo_tag_string = image.repo + ':' + image.tags[docker_version.arch];
         let config = {};
 
         if (image.config) {
@@ -141,19 +135,31 @@ ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, opti
             }
         }
 
-        // Process binds
-        if (image.binds && image.binds.length && bind_props) {
-            if (!config.Volumes) {
-                config.Volumes = {};
-            }
+        const container = docker.getContainer(bind_props.name);
+
+        container.inspect((err, info) => {
+            const repo_tag_string = image.repo + ':' + image.tags[docker_version.arch];
+            const log_config = info.HostConfig.LogConfig;
+
             if (!config.HostConfig) {
                 config.HostConfig = {};
             }
-            if (!config.HostConfig.Binds) {
-                config.HostConfig.Binds = [];
+
+            if (log_config) {
+                config.HostConfig.LogConfig = log_config;
             }
 
-            _get_volume(bind_props.name, bind_props.root, (volume) => {
+            // Process binds
+            if (image.binds && image.binds.length && bind_props) {
+                const volume = _get_volume(info, bind_props.root);
+
+                if (!config.Volumes) {
+                    config.Volumes = {};
+                }
+                if (!config.HostConfig.Binds) {
+                    config.HostConfig.Binds = [];
+                }
+
                 bind_props.volume = volume;
 
                 _create_bind_path_and_file(config, bind_props, image.binds, image.binds.length - 1, (err) => {
@@ -169,26 +175,12 @@ ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, opti
                         _install(repo_tag_string, config, cb);
                     }
                 });
-            });
-        } else {
-            _install(repo_tag_string, config, cb);
-        }
+            } else {
+                _install(repo_tag_string, config, cb);
+            }
+        });
     } else {
         cb && cb(`No image available for "${docker_version.arch}" architecture`);
-    }
-}
-
-ApiExtensionInstallerDocker.prototype.query_updates = function(cb, name) {
-    if (name) {
-        let updates = {};
-
-        if (installed[name]) {
-            updates[name] = installed[name];
-        }
-
-        cb && cb(updates);
-    } else {
-        cb && cb(installed);
     }
 }
 
@@ -216,7 +208,7 @@ ApiExtensionInstallerDocker.prototype.get_options_from_container = function(imag
                     }
                 }
 
-                if (image.options.binds) {
+                if (image.options.binds && info.HostConfig.Binds) {
                     if (!options.binds) {
                         options.binds = {};
                     }
@@ -234,20 +226,24 @@ ApiExtensionInstallerDocker.prototype.get_options_from_container = function(imag
                     }
                 }
 
-                if (image.options.devices) {
+                if (image.options.devices && info.HostConfig.Devices) {
                     if (!options.devices) {
                         options.devices = {};
                     }
 
                     for (let i = 0; i < image.options.devices.length; i++) {
-                        const device = image.options.devices[i].split(':')[0];
+                        const device_split = image.options.devices[i].split(':');
 
-                        for (let j = 0; j < info.HostConfig.Devices.length; j++) {
-                            const device_object = info.HostConfig.Devices[j];
+                        if (device_split[0]) {
+                            for (let j = 0; j < info.HostConfig.Devices.length; j++) {
+                                const device_object = info.HostConfig.Devices[j];
 
-                            if (device == device_object.PathInContainer) {
-                                options.devices[device_object.PathOnHost] = device_object.PathInContainer;
+                                if (device_split[0] == device_object.PathInContainer) {
+                                    options.devices[device_object.PathOnHost] = device_object.PathInContainer;
+                                }
                             }
+                        } else {
+                            console.error(`${name}: no default device specified for option ${device_split[1]}`);
                         }
                     }
                 }
@@ -358,26 +354,22 @@ ApiExtensionInstallerDocker.prototype.get_log = function(name, path, cb) {
     });
 }
 
-function _get_volume(name, destination, cb) {
-    const container = docker.getContainer(name);
+function _get_volume(info, destination) {
+    let volume;
 
-    container.inspect((err, info) => {
-        let volume;
-
-        if (info && info.Mounts) {
-            for (let i = 0; i < info.Mounts.length; i++) {
-                if (destination.includes(info.Mounts[i].Destination)) {
-                    volume = {
-                        source: info.Mounts[i].Source + '/',
-                        name:   info.Mounts[i].Name
-                    };
-                    break;
-                }
+    if (info && info.Mounts) {
+        for (let i = 0; i < info.Mounts.length; i++) {
+            if (destination.includes(info.Mounts[i].Destination)) {
+                volume = {
+                    source: info.Mounts[i].Source + '/',
+                    name:   info.Mounts[i].Name
+                };
+                break;
             }
         }
+    }
 
-        cb && cb(volume);
-    });
+    return volume;
 }
 
 function _create_bind_path_and_file(config, bind_props, binds, count, cb) {

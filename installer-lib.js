@@ -73,7 +73,6 @@ var repos = {};
 var index_cache = {};
 var docker_installed = {};
 var install_options;
-var updates_list = {};
 var action_queue = {};
 var session_error;
 
@@ -180,7 +179,7 @@ ApiExtensionInstaller.prototype.update = function(name) {
 
 ApiExtensionInstaller.prototype.update_all = function() {
     if (!features || features.auto_update != 'off') {
-        _query_updates(_queue_updates);
+        _queue_updates(_query_updates());
     }
 }
 
@@ -216,20 +215,13 @@ ApiExtensionInstaller.prototype.get_details = function(name) {
 ApiExtensionInstaller.prototype.get_actions = function(name) {
     const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
     let actions = [];
-    let options;
 
     if (state == 'not_installed') {
-        const extension = _get_extension(name);
-
         actions.push(_create_action_pair(ACTION_INSTALL));
-
-        if (extension.image) {
-            options = docker.get_install_options(extension.image);
-        }
     } else if (name == REPOS_NAME) {
         actions.push(_create_action_pair(ACTION_UPDATE));
     } else if (name == MANAGER_NAME) {
-        if (updates_list[name] && (!features || features.self_update != 'off')) {
+        if (!features || features.self_update != 'off') {
             actions.push(_create_action_pair(ACTION_UPDATE));
         }
 
@@ -237,10 +229,7 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
             actions.push(_create_action_pair(ACTION_RESTART));
         }
     } else {
-        if (updates_list[name]) {
-            actions.push(_create_action_pair(ACTION_UPDATE));
-        }
-
+        actions.push(_create_action_pair(ACTION_UPDATE));
         actions.push(_create_action_pair(ACTION_UNINSTALL));
 
         if (state == 'running') {
@@ -251,14 +240,38 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
         }
     }
 
-    return {
-        actions: actions,
-        options: options
-    };
+    return actions;
+}
+
+ApiExtensionInstaller.prototype.get_extension_options = function(name, action) {
+    const extension = _get_extension(name);
+    let options;
+
+    if (extension.image && (action == ACTION_INSTALL || action == ACTION_UPDATE)) {
+        options = extension.image.options;
+    }
+
+    return options;
 }
 
 ApiExtensionInstaller.prototype.get_features = function() {
     return features;
+}
+
+ApiExtensionInstaller.prototype.get_extension_settings = function(name, cb) {
+    const options = install_options[name];
+
+    if (options || name == REPOS_NAME) {
+        cb && cb(options);
+    } else {
+        docker.get_options_from_container(_get_extension(name).image, (err, options) => {
+            if (options) {
+                install_options[name] = options;
+            }
+
+            cb && cb(options);
+        });
+    }
 }
 
 ApiExtensionInstaller.prototype.perform_action = function(action, name, options) {
@@ -267,10 +280,12 @@ ApiExtensionInstaller.prototype.perform_action = function(action, name, options)
             _queue_action(name, { action: ACTION_INSTALL, options: options });
             break;
         case ACTION_UPDATE:
-            if (name == REPOS_NAME || updates_list[name]) {
+            if (name == REPOS_NAME || docker_installed[name]) {
                 let update = {};
 
-                update[name] = updates_list[name];
+                update[name] = docker_installed[name];
+                install_options[name] = options;
+
                 _queue_updates(update);
             }
             break;
@@ -404,9 +419,7 @@ function _load_repository(new_repo) {
 
             _set_status(`Extension Repository loaded (v${repos.version})`, false);
 
-            _query_updates(() => {
-                repository_cb && repository_cb(values);
-            });
+            repository_cb && repository_cb(values);
         } else {
             _set_status("Extension Repository not found", true);
 
@@ -582,8 +595,6 @@ function _register_version(name, update, err) {
             } else {
                 _start(name);
             }
-
-            _query_updates(null, name);
         }
     }
 
@@ -797,29 +808,26 @@ function _queue_updates(updates) {
     }
 }
 
-function _query_updates(cb, name) {
+function _query_updates(name) {
     let results = {};
 
-    if (repos && name === undefined) {
-        // Include repository in results
-        results[REPOS_NAME] = repos.version
-    }
-
-    if (Object.keys(docker_installed).length) {
-        docker.query_updates((updates) => {
-            for (const name in updates) {
-                // Only images that are included in the repository
-                if (_get_index_pair(name)) {
-                    results[name] = updates[name];
-                    updates_list[name] = updates[name];
-                }
-            }
-
-            cb && cb(results);
-        }, name);
+    if (name) {
+        results[name] = docker_installed[name];
     } else {
-        cb && cb(results);
+        if (repos) {
+            // Include repository in results
+            results[REPOS_NAME] = repos.version
+        }
+
+        for (const name in docker_installed) {
+            // Only images that are included in the repository
+            if (_get_index_pair(name)) {
+                results[name] = docker_installed[name];
+            }
+        }
     }
+
+    return results;
 }
 
 function _set_status(message, is_error) {

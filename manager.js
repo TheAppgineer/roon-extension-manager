@@ -37,7 +37,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "1.0.0-beta2",
+    display_version:     "1.0.0-beta3",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
@@ -61,31 +61,33 @@ var ext_settings = roon.load_config("settings") || {
 var svc_settings = new RoonApiSettings(roon, {
     get_settings: function(cb) {
         pending_actions = {};           // Start off with a clean list
-        cb(makelayout(ext_settings));
+        get_installation_settings(undefined, ext_settings, () => {
+            cb(makelayout(ext_settings));
+        });
     },
     save_settings: function(req, isdryrun, settings) {
-        update_pending_actions(settings.values);
+        update_pending_actions(settings.values, () => {
+            let l = makelayout(settings.values);
+            req.send_complete(l.has_error ? "NotValid" : "Success", { settings: l });
 
-        let l = makelayout(settings.values);
-        req.send_complete(l.has_error ? "NotValid" : "Success", { settings: l });
+            if (!isdryrun && !l.has_error) {
+                remove_docker_options(l.values);
+                ext_settings = l.values;
+                svc_settings.update_settings(l);
+                roon.save_config("settings", ext_settings);
 
-        if (!isdryrun && !l.has_error) {
-            remove_docker_options(l.values);
-            ext_settings = l.values;
-            svc_settings.update_settings(l);
-            roon.save_config("settings", ext_settings);
+                set_update_timer();
+                perform_pending_actions();
 
-            set_update_timer();
-            perform_pending_actions();
-
-            if (installer.is_idle()) {
-                installer.set_on_activity_changed();
-            } else {
-                installer.set_on_activity_changed(() => {
+                if (installer.is_idle()) {
                     installer.set_on_activity_changed();
-                });
+                } else {
+                    installer.set_on_activity_changed(() => {
+                        installer.set_on_activity_changed();
+                    });
+                }
             }
-        }
+        });
     }
 });
 
@@ -193,7 +195,6 @@ function makelayout(settings) {
         if (name !== undefined) {
             const status  = installer.get_status(name);
             const details = installer.get_details(name);
-            const actions = installer.get_actions(name);
             let author = {
                 type: "label"
             };
@@ -219,7 +220,7 @@ function makelayout(settings) {
                 if (is_pending(name)) {
                     action_list = [{ title: 'Revert Action', value: ACTION_NO_CHANGE }];
                 } else {
-                    action_list = actions.actions;
+                    action_list = installer.get_actions(name);
                 }
 
                 action.values = action.values.concat(action_list);
@@ -229,12 +230,14 @@ function makelayout(settings) {
 
             extension.items.push(author);
             extension.items.push(status_string);
-
-            if (actions.options) {
-                extension.items = extension.items.concat(create_option_items(actions.options, settings));
-            }
-
             extension.items.push(action);
+
+            const pending_action = (pending_actions[name] ? pending_actions[name].action : undefined);
+            const options = installer.get_extension_options(name, pending_action);
+
+            if (options) {
+                extension.items = extension.items.concat(create_option_items(options, settings));
+            }
         } else {
             settings.selected_extension = undefined;
         }
@@ -330,7 +333,8 @@ function create_option_items(options, settings) {
     return items;
 }
 
-function get_docker_options(settings) {
+function get_user_settings(settings) {
+    // Get the settings from the input provided by the user
     let docker;
 
     for (const key in settings) {
@@ -374,6 +378,31 @@ function get_docker_options(settings) {
     return docker;
 }
 
+function get_installation_settings(options, settings, cb) {
+    // Get the settings from the installed instance of the extension
+    const name = settings.selected_extension;
+
+    if (!name || (options && options[name])) {
+        cb && cb();
+    } else {
+        installer.get_extension_settings(name, (options) => {
+            // Inject options in settings
+            // Keys are in the form: docker_<name>_<field_type>_<field_name>
+            for (const field_type in options) {
+                for (const field_name in options[field_type]) {
+                    if (field_type == 'env') {
+                        settings[`docker_${name}_${field_type}_${field_name}`] = options[field_type][field_name];
+                    } else {
+                        settings[`docker_${name}_${field_type}_${options[field_type][field_name]}`] = field_name;
+                    }
+                }
+            }
+
+            cb && cb();
+        });
+    }
+}
+
 function remove_docker_options(settings) {
     for (const key in settings) {
         if (key.includes("docker_")) {
@@ -386,10 +415,10 @@ function is_pending(name) {
     return pending_actions[name];
 }
 
-function update_pending_actions(settings) {
+function update_pending_actions(settings, cb) {
     const name = settings.selected_extension;
     const action = settings.action;
-    const options = get_docker_options(settings);
+    const options = get_user_settings(settings);
 
     if (action !== undefined) {
         if (action === ACTION_NO_CHANGE) {
@@ -417,6 +446,8 @@ function update_pending_actions(settings) {
     } else if (pending_actions[name] && options && options[name]) {
         pending_actions[name].options = options[name];
     }
+
+    get_installation_settings(options, settings, cb);
 }
 
 function get_pending_actions_string() {
