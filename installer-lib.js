@@ -543,14 +543,16 @@ function _install(name, options, cb) {
 
             _update_repository();
         } else {
-            _set_status(`Installing: ${name}...`, false);
+            const display_name = _get_extension(name).display_name;
+
+            _set_status(`Installing: ${display_name}...`, false);
 
             // Store options for future update requests
             install_options[name] = options;
 
             docker.install(_get_extension(name).image, get_bind_props(name), options, (err, tag) => {
                 if (err) {
-                    _set_status(`Installation failed: ${name}\n${err}`, true);
+                    _set_status(`Installation failed: ${display_name}\n${err}`, true);
                 } else {
                     docker_installed[name] = tag;
                 }
@@ -571,14 +573,15 @@ function _register_updated_version(name, err) {
 
 function _register_version(name, update, err) {
     const tag = docker_installed[name];
+    const display_name = _get_extension(name).display_name;
 
     if (err && err != 'already up to date') {
-        _set_status((update ? 'Update' : 'Installation') + ' failed: ' + name, true);
+        _set_status(`${update ? 'Update' : 'Installation'} failed: ${display_name}`, true);
     } else if (tag) {
         if (err) {
-            _set_status(`${name} ${err}`, false);
+            _set_status(`${display_name} ${err}`, false);
         } else {
-            _set_status((update ? 'Updated: ' : 'Installed: ') + name + ' (' + tag + ')', false);
+            _set_status(`${update ? 'Updated:' : 'Installed:'} ${display_name} (${tag})`, false);
         }
 
         if (name == MANAGER_NAME) {
@@ -606,7 +609,7 @@ function _register_version(name, update, err) {
 function _update(name, cb) {
     if (name) {
         _stop(name, false, () => {
-            _set_status("Updating: " + name + "...", false);
+            _set_status(`Updating: ${_get_extension(name).display_name}...`, false);
 
             if (name == REPOS_NAME) {
                 _update_repository();
@@ -641,12 +644,14 @@ function _update(name, cb) {
 function _uninstall(name, cb) {
     if (name) {
         _stop(name, true, () => {
-            _set_status(`Uninstalling: ${name}...`, false);
+            const display_name = _get_extension(name).display_name;
+
+            _set_status(`Uninstalling: ${display_name}...`, false);
 
             if (docker_installed[name]) {
                 docker.uninstall(name, (err, installed) => {
                     if (err) {
-                        _set_status(`Uninstall failed: ${name}\n${err}`, true);
+                        _set_status(`Uninstall failed: ${display_name}\n${err}`, true);
                     } else {
                         docker_installed = _get_docker_installed_extensions(installed);
                     }
@@ -659,7 +664,7 @@ function _uninstall(name, cb) {
 }
 
 function _unregister_version(name) {
-    _set_status("Uninstalled: " + name, false);
+    _set_status(`Uninstalled: ${_get_extension(name).display_name}`, false);
     _remove_action(name);
     session_error = undefined;
 }
@@ -685,7 +690,7 @@ function _start(name) {
         docker.start(name);
     }
 
-    _set_status("Started: " + name, false);
+    _set_status(`Started: ${_get_extension(name).display_name}`, false);
 }
 
 function _restart(name) {
@@ -702,17 +707,19 @@ function _stop(name, user, cb) {
     const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
 
     if (docker_installed[name] && name != MANAGER_NAME && state == 'running') {
-        _set_status("Terminating process: " + name + "...", false);
+        const display_name = _get_extension(name).display_name;
+
+        _set_status(`Terminating process: ${display_name}...`, false);
 
         if (user) {
             docker.stop(name, () => {
-                _set_status("Stopped: " + name, false);
+                _set_status(`Stopped: ${display_name}`, false);
 
                 cb && cb();
             });
         } else {
             docker.terminate(name, () => {
-                _set_status("Process terminated: " + name, false);
+                _set_status(`Process terminated: ${display_name}`, false);
 
                 cb && cb();
             });
