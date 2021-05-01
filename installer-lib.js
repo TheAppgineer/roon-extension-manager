@@ -312,14 +312,17 @@ ApiExtensionInstaller.prototype.is_idle = function(name) {
     return (name ? !action_queue[name] : !Object.keys(action_queue).length);
 }
 
+ApiExtensionInstaller.prototype.export_logs = function(cb) {
+    let index = 0;
+
+    _get_log(index, cb);
+}
+
 ApiExtensionInstaller.prototype.get_logs_archive = function(cb) {
     const tar = require('tar');
     const options = { gzip: true };
-    let index = 0;
 
-    _get_log(index, () => {
-        cb && cb(tar.create(options, [log_dir]));
-    });
+    cb && cb(tar.create(options, [log_dir]));
 }
 
 function _create_action_pair(action) {
@@ -676,11 +679,12 @@ function _get_log(index, cb) {
         const name = names[index];
         const log_file = log_dir + name + '.log';
 
-        console.log("Capturing log stream of " + name);
+        _set_status(`Collecting logs of ${_get_extension(name).display_name}`);
         docker.get_log(name, log_file, () => {
             _get_log(index + 1, cb);
         });
     } else {
+        _set_status('Logs collected, click above link to download');
         cb && cb();
     }
 }

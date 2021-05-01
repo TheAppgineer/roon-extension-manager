@@ -20,6 +20,8 @@ var RoonApi               = require("node-roon-api"),
     ApiTimeInput          = require('node-api-time-input'),
     ApiExtensionInstaller = require('./installer-lib');
 
+const GLOBAL_LOGS      = 1;
+
 const ACTION_NO_CHANGE = 0;
 
 const PORT = 2507;
@@ -116,15 +118,10 @@ function makelayout(settings) {
         layout:    [],
         has_error: false
     };
-    let global = {
-        type:        "group",
-        title:       "[GLOBAL SETTINGS]",
-        collapsable: true,
-        items:       []
-    };
     let update = {
         type:    "string",
-        title:   "Check for updates @ [hh:mm]",
+        title:   "Check for Updates",
+        subtitle:"hh:mm[am|pm]",
         setting: "update_time"
     };
     let category = {
@@ -159,10 +156,6 @@ function makelayout(settings) {
     installer.set_on_activity_changed(() => {
         svc_settings.update_settings(l);
     });
-
-    if (!features || features.auto_update != 'off') {
-        global.items.push(update);
-    }
 
     if (settings.update_time) {
         let valid_time = timer.validate_time_string(settings.update_time);
@@ -246,9 +239,19 @@ function makelayout(settings) {
         settings.selected_extension = undefined;
     }
 
-    if (global.items.length) {
-        l.layout.push(global);
+    if (!features || features.auto_update != 'off') {
+        l.layout.push(update);
     }
+
+    l.layout.push({
+        type:    "dropdown",
+        title:   "Global Action",
+        values:  [
+            { title: "(select action)", value: undefined   },
+            { title: "Collect Logs",    value: GLOBAL_LOGS }
+        ],
+        setting: "global_action"
+    });
 
     l.layout.push({
         type:  "group",
@@ -418,6 +421,7 @@ function is_pending(name) {
 function update_pending_actions(settings, cb) {
     const name = settings.selected_extension;
     const action = settings.action;
+    const global_action = settings.global_action;
     const options = get_user_settings(settings);
 
     if (action !== undefined) {
@@ -428,7 +432,7 @@ function update_pending_actions(settings, cb) {
             // Update pending actions
             for (let i = 0; i < action_list.length; i++) {
                 if (action_list[i].value === action) {
-                    let friendly = action_list[i].title + " " + installer.get_details(name).display_name;
+                    const friendly = action_list[i].title + " " + installer.get_details(name).display_name;
 
                     pending_actions[name] = {
                         action,
@@ -442,9 +446,21 @@ function update_pending_actions(settings, cb) {
         }
 
         // Cleanup
-        delete settings["action"];
+        delete settings.action;
     } else if (pending_actions[name] && options && options[name]) {
         pending_actions[name].options = options[name];
+    }
+
+    if (global_action !== undefined) {
+        if (global_action === GLOBAL_LOGS) {
+            pending_actions.global = {
+                action:   GLOBAL_LOGS,
+                friendly: 'Collect Logs'
+            };
+        }
+
+        // Cleanup
+        delete settings.global_action;
     }
 
     get_installation_settings(options, settings, cb);
@@ -465,11 +481,28 @@ function get_pending_actions_string() {
 }
 
 function perform_pending_actions() {
-    for (const name in pending_actions) {
-        installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
+    if (pending_actions.global) {
+        const global_action = pending_actions.global.action;
 
-        // Consume action
-        delete pending_actions[name];
+        delete pending_actions.global;
+
+        if (global_action === GLOBAL_LOGS) {
+            installer.export_logs(() => {
+                for (const name in pending_actions) {
+                    installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
+
+                    // Consume action
+                    delete pending_actions[name];
+                }
+            });
+        }
+    } else {
+        for (const name in pending_actions) {
+            installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
+
+            // Consume action
+            delete pending_actions[name];
+        }
     }
 }
 

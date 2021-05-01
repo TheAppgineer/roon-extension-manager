@@ -332,15 +332,15 @@ ApiExtensionInstallerDocker.prototype.terminate = function(name, cb) {
 ApiExtensionInstallerDocker.prototype.get_log = function(name, path, cb) {
     const container = docker.getContainer(name);
     const options = {
-        follow:     true,   // 'false' gives a stream without statusCode
+        follow:     true,   // 'false' doesn't provide a stream: https://github.com/apocas/dockerode/issues/456
         stdout:     true,
         stderr:     true,
         until:      Date.now() / 1000,
         timestamps: true
     };
 
-    path && container.logs(options, (err, stream) => {
-        if (stream && stream.statusCode == 200) {
+    container.logs(options, (err, stream) => {
+        if (path && stream && stream.statusCode == 200) {
             const fs = require('fs');
             let log_stream = fs.createWriteStream(path, { mode: 0o644 });
 
@@ -350,6 +350,8 @@ ApiExtensionInstallerDocker.prototype.get_log = function(name, path, cb) {
                 log_stream.end();
                 cb && cb();
             });
+        } else {
+            cb && cb(err);
         }
     });
 }
