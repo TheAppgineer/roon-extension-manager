@@ -507,44 +507,29 @@ function perform_pending_actions() {
 }
 
 function set_update_timer() {
-    let valid_time = timer.validate_time_string(ext_settings.update_time);
+    const valid_time = timer.validate_time_string(ext_settings.update_time);
+
+    if (timeout_id != null) {
+        // Clear pending timeout
+        clearTimeout(timeout_id);
+        timeout_id = null;
+    }
 
     if (valid_time) {
         const now = Date.now();
         let date = new Date(now);
-        let tz_offset = date.getTimezoneOffset();
 
-        date.setSeconds(0);
         date.setMilliseconds(0);
-        date.setHours(valid_time.hours);
+        date.setSeconds(0);
         date.setMinutes(valid_time.minutes);
+        date.setHours(valid_time.hours);
 
-        let timeout_time = date.getTime();
-
-        if (timeout_time < now) {
+        if (date.getTime() <= now) {
             // Time has passed for today
-            timeout_time += 24 * 60 * 60 * 1000;
+            date.setDate(date.getDate() + 1);   // Corrects for days per month and daylight saving time
         }
 
-        date = new Date(timeout_time);
-        tz_offset -= date.getTimezoneOffset();
-
-        if (tz_offset) {
-            timeout_time -= tz_offset * 60 * 1000;
-        }
-
-        timeout_time -= now;
-
-        if (timeout_id != null) {
-            // Clear pending timeout
-            clearTimeout(timeout_id);
-        }
-
-        timeout_id = setTimeout(timer_timed_out, timeout_time);
-    } else {
-        // Clear pending timeout
-        clearTimeout(timeout_id);
-        timeout_id = null;
+        timeout_id = setTimeout(timer_timed_out, date.getTime() - now);
     }
 }
 
