@@ -28,9 +28,9 @@ const system_extensions = [{
     image: {
         repo: `theappgineer/${MANAGER_NAME}`,
         tags: {
-            amd64: "latest",
-            arm:   "latest",
-            arm64: "latest"
+            amd64: "v1.x",
+            arm:   "v1.x",
+            arm64: "v1.x"
         }
     }
 },
@@ -173,10 +173,6 @@ ApiExtensionInstaller.prototype.get_extensions_by_category = function(category_i
     return values;
 }
 
-ApiExtensionInstaller.prototype.update = function(name) {
-    ApiExtensionInstaller.prototype.perform_action.call(this, ACTION_UPDATE, name);
-}
-
 ApiExtensionInstaller.prototype.update_all = function() {
     if (!features || features.auto_update != 'off') {
         _queue_updates(_query_updates());
@@ -274,33 +270,44 @@ ApiExtensionInstaller.prototype.get_extension_settings = function(name, cb) {
     }
 }
 
-ApiExtensionInstaller.prototype.perform_action = function(action, name, options) {
-    switch (action) {
-        case ACTION_INSTALL:
-            _queue_action(name, { action: ACTION_INSTALL, options: options });
-            break;
-        case ACTION_UPDATE:
-            if (name == REPOS_NAME || docker_installed[name]) {
-                let update = {};
+ApiExtensionInstaller.prototype.perform_actions = function(actions) {
+    let updates = {}
 
-                update[name] = docker_installed[name];
-                install_options[name] = options;
+    for (const name in actions) {
+        const options = actions[name].options;
 
-                _queue_updates(update);
-            }
-            break;
-        case ACTION_UNINSTALL:
-            _queue_action(name, { action: ACTION_UNINSTALL });
-            break;
-        case ACTION_START:
-            _start(name);
-            break;
-        case ACTION_RESTART:
-            _restart(name);
-            break;
-        case ACTION_STOP:
-            _stop(name, true);
-            break;
+        switch (actions[name].action) {
+            case ACTION_INSTALL:
+                _queue_action(name, { action: ACTION_INSTALL, options: options });
+                break;
+            case ACTION_UPDATE:
+                if (name == REPOS_NAME) {
+                    updates[name] = repos.version;
+                } else if (docker_installed[name]) {
+                    updates[name] = docker_installed[name];
+                    install_options[name] = options;
+                }
+                break;
+            case ACTION_UNINSTALL:
+                _queue_action(name, { action: ACTION_UNINSTALL });
+                break;
+            case ACTION_START:
+                _start(name);
+                break;
+            case ACTION_RESTART:
+                _restart(name);
+                break;
+            case ACTION_STOP:
+                _stop(name, true);
+                break;
+        }
+
+        // Consume action
+        delete actions[name];
+    }
+
+    if (Object.keys(updates).length) {
+        _queue_updates(updates);
     }
 }
 
@@ -332,7 +339,7 @@ function _create_action_pair(action) {
     };
 }
 
-function _update_repository() {
+function _update_repository(cb) {
     _download_repository((data) => {
         if (data) {
             const parsed = JSON.parse(data);
@@ -344,12 +351,10 @@ function _update_repository() {
                              (parsed.version != repos.version && parsed.version >= MIN_REPOS_VERSION));
 
             if (changed) {
-                _load_repository(parsed);
+                _load_repository(parsed, cb);
             } else {
-                _set_status('Extension Repository already up to date', false);
+                cb && cb(REPOS_NAME, 'already up to date');
             }
-
-            _remove_action(REPOS_NAME);
         }
     });
 }
@@ -382,7 +387,7 @@ function _download_repository(cb) {
     });
 }
 
-function _load_repository(new_repo) {
+function _load_repository(new_repo, cb) {
     const local_repos = data_root + repos_dir;
 
     repos.version = new_repo.version;
@@ -420,11 +425,11 @@ function _load_repository(new_repo) {
             docker_installed = _get_docker_installed_extensions(docker_installed);
             console.log(docker_installed);
 
-            _set_status(`Extension Repository loaded (v${repos.version})`, false);
+            cb && cb(REPOS_NAME);
 
             repository_cb && repository_cb(values);
         } else {
-            _set_status("Extension Repository not found", true);
+            cb && cb(REPOS_NAME, 'not found');
 
             repository_cb && repository_cb();
         }
@@ -544,7 +549,7 @@ function _install(name, options, cb) {
         if (name == REPOS_NAME) {
             _set_status('Loading Extension Repository...', false);
 
-            _update_repository();
+            _update_repository(cb);
         } else {
             const display_name = _get_extension(name).display_name;
 
@@ -579,7 +584,7 @@ function _register_version(name, update, err) {
     const display_name = _get_extension(name).display_name;
 
     if (err && err != 'already up to date') {
-        _set_status(`${update ? 'Update' : 'Installation'} failed: ${display_name}`, true);
+        _set_status(`${update ? 'Update' : 'Installation'} failed: ${display_name} ${err}`, true);
     } else if (tag) {
         if (err) {
             _set_status(`${display_name} ${err}`, false);
@@ -602,6 +607,12 @@ function _register_version(name, update, err) {
                 _start(name);
             }
         }
+    } else if (name == REPOS_NAME) {
+        if (err) {
+            _set_status(`${display_name} ${err}`, false);
+        } else {
+            _set_status(`${display_name} loaded (v${repos.version})`, false);
+        }
     }
 
     // Update administration
@@ -615,7 +626,7 @@ function _update(name, cb) {
             _set_status(`Updating: ${_get_extension(name).display_name}...`, false);
 
             if (name == REPOS_NAME) {
-                _update_repository();
+                _update_repository(cb);
             } else if (docker_installed[name]) {
                 const image = _get_extension(name).image;
                 const bind_props = get_bind_props(name);
@@ -779,11 +790,7 @@ function _perform_action() {
                 _install(name, action_queue[name].options, _register_installed_version);
                 break;
             case ACTION_UPDATE:
-                if (name == REPOS_NAME) {
-                    _update(name);
-                } else {
-                    _update(name, _register_updated_version);
-                }
+                _update(name, _register_updated_version);
                 break;
             case ACTION_UNINSTALL:
                 _uninstall(name, _unregister_version);
@@ -799,19 +806,22 @@ function _perform_action() {
 }
 
 function _queue_updates(updates) {
-    if (updates && Object.keys(updates).length) {
-        let self_update_pending = false;
+    if (updates) {
+        // Update order: repository, extensions, self
+
+        if (updates[REPOS_NAME]) {
+            _queue_action(REPOS_NAME, { action: ACTION_UPDATE });
+
+            delete updates[REPOS_NAME];
+        }
 
         for (const name in updates) {
-            if (name == MANAGER_NAME) {
-                self_update_pending = (!features || features.self_update != 'off');
-            } else {
+            if (name != MANAGER_NAME) {
                 _queue_action(name, { action: ACTION_UPDATE });
             }
         }
 
-        if (self_update_pending) {
-            // Perform manager actions last
+        if (updates[MANAGER_NAME] && (!features || features.self_update != 'off')) {
             _queue_action(MANAGER_NAME, { action: ACTION_UPDATE });
         }
     } else {

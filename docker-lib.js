@@ -20,6 +20,7 @@ var docker;
 var docker_version;
 var installed = {};
 var states = {};
+var log_config;
 var on_progress_cb;
 
 function ApiExtensionInstallerDocker(cbs) {
@@ -139,15 +140,8 @@ ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, opti
 
         container.inspect((err, info) => {
             const repo_tag_string = image.repo + ':' + image.tags[docker_version.arch];
-            const log_config = info.HostConfig.LogConfig;
 
-            if (!config.HostConfig) {
-                config.HostConfig = {};
-            }
-
-            if (log_config) {
-                config.HostConfig.LogConfig = log_config;
-            }
+            log_config = info.HostConfig.LogConfig;
 
             // Process binds
             if (image.binds && image.binds.length && bind_props) {
@@ -474,6 +468,7 @@ function _install(repo_tag_string, config, cb) {
 
             function on_finished(err, output) {
                 const final_status = output[output.length - 1].status;
+                const up_to_date = (final_status == `Status: Image is up to date for ${repo_tag_string}`);
                 const name = _split(repo_tag_string).repo;
 
                 if (config && Object.keys(config).length) {
@@ -493,7 +488,7 @@ function _install(repo_tag_string, config, cb) {
                     } else {
                         _create_container(config, cb);
                     }
-                } else if (final_status == `Status: Image is up to date for ${repo_tag_string}`) {
+                } else if (up_to_date) {
                     cb && cb('already up to date');
                 } else {
                     cb && cb();
@@ -517,6 +512,10 @@ function _create_container(config, cb) {
 
     // Other forced settings
     config.HostConfig.NetworkMode = "host";
+
+    if (log_config) {
+        config.HostConfig.LogConfig = log_config;
+    }
 
     console.log(config);
 

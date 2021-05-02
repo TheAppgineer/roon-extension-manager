@@ -488,21 +488,11 @@ function perform_pending_actions() {
 
         if (global_action === GLOBAL_LOGS) {
             installer.export_logs(() => {
-                for (const name in pending_actions) {
-                    installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
-
-                    // Consume action
-                    delete pending_actions[name];
-                }
+                installer.perform_actions(pending_actions);
             });
         }
     } else {
-        for (const name in pending_actions) {
-            installer.perform_action(pending_actions[name].action, name, pending_actions[name].options);
-
-            // Consume action
-            delete pending_actions[name];
-        }
+        installer.perform_actions(pending_actions);
     }
 }
 
