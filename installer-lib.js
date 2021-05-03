@@ -307,7 +307,7 @@ ApiExtensionInstaller.prototype.perform_actions = function(actions) {
     }
 
     if (Object.keys(updates).length) {
-        _queue_updates(updates);
+        _queue_updates(updates, true);
     }
 }
 
@@ -558,7 +558,7 @@ function _install(name, options, cb) {
             // Store options for future update requests
             install_options[name] = options;
 
-            docker.install(_get_extension(name).image, get_bind_props(name), options, (err, tag) => {
+            docker.install(_get_extension(name).image, get_bind_props(name), options, false, (err, tag) => {
                 if (err) {
                     _set_status(`Installation failed: ${display_name}\n${err}`, true);
                 } else {
@@ -612,6 +612,13 @@ function _register_version(name, update, err) {
             _set_status(`${display_name} ${err}`, false);
         } else {
             _set_status(`${display_name} loaded (v${repos.version})`, false);
+
+            // Mark pending updates for container recreation
+            for (const name in action_queue) {
+                if (name != REPOS_NAME && name != MANAGER_NAME && action_queue[name].action === ACTION_UPDATE) {
+                    action_queue[name].recreate = true;
+                }
+            }
         }
     }
 
@@ -620,7 +627,7 @@ function _register_version(name, update, err) {
     session_error = undefined;
 }
 
-function _update(name, cb) {
+function _update(name, recreate, cb) {
     if (name) {
         _stop(name, false, () => {
             _set_status(`Updating: ${_get_extension(name).display_name}...`, false);
@@ -633,7 +640,7 @@ function _update(name, cb) {
                 const options = install_options[name];
 
                 if (options) {
-                    docker.install(image, bind_props, options, (err) => {
+                    docker.install(image, bind_props, options, recreate, (err) => {
                         cb && cb(name, err);
                     });
                 } else {
@@ -644,7 +651,7 @@ function _update(name, cb) {
                             // Store options for future update requests
                             install_options[name] = options;
 
-                            docker.install(image, bind_props, options, (err) => {
+                            docker.install(image, bind_props, options, recreate, (err) => {
                                 cb && cb(name, err);
                             });
                         }
@@ -790,7 +797,7 @@ function _perform_action() {
                 _install(name, action_queue[name].options, _register_installed_version);
                 break;
             case ACTION_UPDATE:
-                _update(name, _register_updated_version);
+                _update(name, action_queue[name].recreate, _register_updated_version);
                 break;
             case ACTION_UNINSTALL:
                 _uninstall(name, _unregister_version);
@@ -805,7 +812,7 @@ function _perform_action() {
     }
 }
 
-function _queue_updates(updates) {
+function _queue_updates(updates, manual) {
     if (updates) {
         // Update order: repository, extensions, self
 
@@ -817,7 +824,7 @@ function _queue_updates(updates) {
 
         for (const name in updates) {
             if (name != MANAGER_NAME) {
-                _queue_action(name, { action: ACTION_UPDATE });
+                _queue_action(name, { action: ACTION_UPDATE, recreate: manual });
             }
         }
 

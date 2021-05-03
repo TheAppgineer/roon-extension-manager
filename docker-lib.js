@@ -79,7 +79,7 @@ ApiExtensionInstallerDocker.prototype.get_name = function(image) {
     return _split(image.repo).repo;
 }
 
-ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, options, cb) {
+ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, options, recreate, cb) {
     if (docker_version && image && image.tags[docker_version.arch]) {
         let config = {};
 
@@ -150,6 +150,9 @@ ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, opti
                 if (!config.Volumes) {
                     config.Volumes = {};
                 }
+                if (!config.HostConfig) {
+                    config.HostConfig = {};
+                }
                 if (!config.HostConfig.Binds) {
                     config.HostConfig.Binds = [];
                 }
@@ -166,11 +169,11 @@ ApiExtensionInstallerDocker.prototype.install = function(image, bind_props, opti
                             config.HostConfig.Binds.push(volume.name + ':' + bind_props.root + ':ro');
                         }
 
-                        _install(repo_tag_string, config, cb);
+                        _install(repo_tag_string, config, recreate, cb);
                     }
                 });
             } else {
-                _install(repo_tag_string, config, cb);
+                _install(repo_tag_string, config, recreate, cb);
             }
         });
     } else {
@@ -428,7 +431,7 @@ function _create_bind_path_and_file(config, bind_props, binds, count, cb) {
     }
 }
 
-function _install(repo_tag_string, config, cb) {
+function _install(repo_tag_string, config, recreate, cb) {
     docker.pull(repo_tag_string, (err, stream) => {
         if (err) {
             cb && cb(err);
@@ -471,7 +474,9 @@ function _install(repo_tag_string, config, cb) {
                 const up_to_date = (final_status == `Status: Image is up to date for ${repo_tag_string}`);
                 const name = _split(repo_tag_string).repo;
 
-                if (config && Object.keys(config).length) {
+                if (up_to_date && !recreate) {
+                    cb && cb('already up to date');
+                } else if (config && Object.keys(config).length) {
                     config.name  = name;
                     config.Image = repo_tag_string;
 
@@ -488,8 +493,6 @@ function _install(repo_tag_string, config, cb) {
                     } else {
                         _create_container(config, cb);
                     }
-                } else if (up_to_date) {
-                    cb && cb('already up to date');
                 } else {
                     cb && cb();
                 }
