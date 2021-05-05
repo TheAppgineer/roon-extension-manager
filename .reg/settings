@@ -1,0 +1,30 @@
+# Set the AUTHOR variable to the name you want to be presented with to the user
+AUTHOR="The Appgineer"
+
+# Set the extension ID to a string that uniquely identifies your extension, e.g. based on an internet domain you own
+EXTENSION_ID=com.theappgineer.extension-manager
+
+# Set the NAME variable to the name of your extension
+NAME=roon-extension-manager
+
+# Set the FRIENDLY_NAME variable to a more readable name for your extension
+FRIENDLY_NAME="Roon Extension Manager"
+
+# Set the DESCRIPTION variable to a single line string that summarizes the function of your extension
+DESCRIPTION="Roon Extension for managing Roon Extensions"
+
+# Set the VERSION variable to the version number of your extension
+VERSION=1.0.0-beta3
+
+# Set the EMAIL variable to the address that users can use for support questions
+EMAIL=theappgineer@gmail.com
+
+# Set the WEBSITE variable to the location where more information about your extension can be found
+# This can be your website, a Roon Community forum post, the GitHub respository of your extension, etc.
+WEBSITE=
+
+# Set the MAIN_FILE variable to the main source file of your extension
+MAIN_FILE=manager.js
+
+# Set the USER variable to your Docker Hub account name
+USER=theappgineer

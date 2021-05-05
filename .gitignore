@@ -2,3 +2,5 @@
 log
 node_modules
 config.json
+.reg/bin
+.reg/etc
