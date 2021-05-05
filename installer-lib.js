@@ -33,12 +33,6 @@ const system_extensions = [{
             arm64: "v1.x"
         }
     }
-},
-{
-    name: REPOS_NAME,
-    author: "The Appgineer",
-    display_name: "Extension Repository",
-    description: "Repository of (community developed) Roon Extensions"
 }];
 
 const ACTION_INSTALL = 1;
@@ -149,6 +143,16 @@ function ApiExtensionInstaller(callbacks, features_file) {
     });
 }
 
+ApiExtensionInstaller.prototype.load_repository = function(cb) {
+    _update_repository((name, err) => {
+        if (!err || err == 'already up to date') {
+            cb && cb(repos.version);
+        } else {
+            cb && cb();
+        }
+    });
+}
+
 ApiExtensionInstaller.prototype.get_extensions_by_category = function(category_index) {
     const extensions = repos.categories[category_index].extensions;
     let values = [];
@@ -184,17 +188,7 @@ ApiExtensionInstaller.prototype.restart_manager = function() {
 }
 
 ApiExtensionInstaller.prototype.get_status = function(name) {
-    if (name == REPOS_NAME) {
-        const version = repos && repos.version;
-        const state = (version ? 'installed' : 'not_installed');
-
-        return {
-            state:   state,
-            version: version
-        };
-    } else {
-        return docker.get_status(name);
-    }
+    return docker.get_status(name);
 }
 
 ApiExtensionInstaller.prototype.get_details = function(name) {
@@ -214,8 +208,6 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
 
     if (state == 'not_installed') {
         actions.push(_create_action_pair(ACTION_INSTALL));
-    } else if (name == REPOS_NAME) {
-        actions.push(_create_action_pair(ACTION_UPDATE));
     } else if (name == MANAGER_NAME) {
         if (!features || features.self_update != 'off') {
             actions.push(_create_action_pair(ACTION_UPDATE));
@@ -281,9 +273,7 @@ ApiExtensionInstaller.prototype.perform_actions = function(actions) {
                 _queue_action(name, { action: ACTION_INSTALL, options: options });
                 break;
             case ACTION_UPDATE:
-                if (name == REPOS_NAME) {
-                    updates[name] = repos.version;
-                } else if (docker_installed[name]) {
+                if (docker_installed[name]) {
                     updates[name] = docker_installed[name];
                     install_options[name] = options;
                 }
@@ -507,6 +497,10 @@ function _get_name(extension) {
     return name;
 }
 
+function _get_display_name(name) {
+    return (name == REPOS_NAME ? 'Extension Repository' : _get_extension(name).display_name);
+}
+
 function _get_index_pair(name) {
     let index_pair = index_cache[name];
 
@@ -551,7 +545,7 @@ function _install(name, options, cb) {
 
             _update_repository(cb);
         } else {
-            const display_name = _get_extension(name).display_name;
+            const display_name = _get_display_name(name);
 
             _set_status(`Installing: ${display_name}...`, false);
 
@@ -581,7 +575,7 @@ function _register_updated_version(name, err) {
 
 function _register_version(name, update, err) {
     const tag = docker_installed[name];
-    const display_name = _get_extension(name).display_name;
+    const display_name = _get_display_name(name);
 
     if (err && err != 'already up to date') {
         _set_status(`${update ? 'Update' : 'Installation'} failed: ${display_name} ${err}`, true);
@@ -630,7 +624,7 @@ function _register_version(name, update, err) {
 function _update(name, recreate, cb) {
     if (name) {
         _stop(name, false, () => {
-            _set_status(`Updating: ${_get_extension(name).display_name}...`, false);
+            _set_status(`Updating: ${_get_display_name(name)}...`, false);
 
             if (name == REPOS_NAME) {
                 _update_repository(cb);
@@ -665,7 +659,7 @@ function _update(name, recreate, cb) {
 function _uninstall(name, cb) {
     if (name) {
         _stop(name, true, () => {
-            const display_name = _get_extension(name).display_name;
+            const display_name = _get_display_name(name);
 
             _set_status(`Uninstalling: ${display_name}...`, false);
 
@@ -685,7 +679,7 @@ function _uninstall(name, cb) {
 }
 
 function _unregister_version(name) {
-    _set_status(`Uninstalled: ${_get_extension(name).display_name}`, false);
+    _set_status(`Uninstalled: ${_get_display_name(name)}`, false);
     _remove_action(name);
     session_error = undefined;
 }
@@ -697,7 +691,7 @@ function _get_log(index, cb) {
         const name = names[index];
         const log_file = log_dir + name + '.log';
 
-        _set_status(`Collecting logs of ${_get_extension(name).display_name}`);
+        _set_status(`Collecting logs of ${_get_display_name(name)}`);
         docker.get_log(name, log_file, () => {
             _get_log(index + 1, cb);
         });
@@ -712,7 +706,7 @@ function _start(name) {
         docker.start(name);
     }
 
-    _set_status(`Started: ${_get_extension(name).display_name}`, false);
+    _set_status(`Started: ${_get_display_name(name)}`, false);
 }
 
 function _restart(name) {
@@ -729,7 +723,7 @@ function _stop(name, user, cb) {
     const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
 
     if (docker_installed[name] && name != MANAGER_NAME && state == 'running') {
-        const display_name = _get_extension(name).display_name;
+        const display_name = _get_display_name(name);
 
         _set_status(`Terminating process: ${display_name}...`, false);
 

@@ -63,7 +63,8 @@ var ext_settings = roon.load_config("settings") || {
 var svc_settings = new RoonApiSettings(roon, {
     get_settings: function(cb) {
         pending_actions = {};           // Start off with a clean list
-        get_installation_settings(undefined, ext_settings, () => {
+
+        get_settings_data(undefined, ext_settings, () => {
             cb(makelayout(ext_settings));
         });
     },
@@ -255,7 +256,7 @@ function makelayout(settings) {
 
     l.layout.push({
         type:  "group",
-        title: "[EXTENSION]",
+        title: `[EXTENSION REPOSITORY v${settings.repo_version}]`,
         items: [category, selector, extension]
     });
 
@@ -379,6 +380,20 @@ function get_user_settings(settings) {
     }
 
     return docker;
+}
+
+function get_settings_data(options, settings, cb) {
+    if (installer.is_idle()) {
+        installer.load_repository((version) => {
+            if (version) {
+                settings.repo_version = version;
+            }
+
+            get_installation_settings(options, settings, cb);
+        });
+    } else {
+        get_installation_settings(options, settings, cb);
+    }
 }
 
 function get_installation_settings(options, settings, cb) {
