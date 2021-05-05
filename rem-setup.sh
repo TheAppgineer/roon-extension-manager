@@ -1,7 +1,7 @@
 #!/bin/bash
 
 NAME=rem
-VERSION=1.0.0-beta2
+VERSION=1.0.0-beta3
 
 OK="[ \e[32mOK\e[0m ]"
 FAIL="[\e[31mFAIL\e[0m]"
@@ -151,7 +151,7 @@ After=docker.service
 
 [Service]
 User=$USR
-Restart=always
+Restart=on-success
 ExecStart=$ROOT_DIR/$NAME.sh
 Environment="DOCKER_GID=$GID"
 Environment="TZ=$TZ"
@@ -181,9 +181,16 @@ echo -e $OK
 
 # Wait for volume creation
 echo -ne $WAIT_VOL
+timeout=240
 
 until docker volume inspect rem_data > /dev/null 2>&1; do
     sleep 1s
+    timeout=$((timeout-1))
+
+    if [ $timeout -eq 0 ]; then
+        echo -e $FAIL
+        exit 1
+    fi
 done
 echo -e $OK
 
