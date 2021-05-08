@@ -329,24 +329,35 @@ ApiExtensionInstallerDocker.prototype.terminate = function(name, cb) {
 ApiExtensionInstallerDocker.prototype.get_log = function(name, path, cb) {
     const container = docker.getContainer(name);
     const options = {
-        follow:     true,   // 'false' doesn't provide a stream: https://github.com/apocas/dockerode/issues/456
         stdout:     true,
         stderr:     true,
-        until:      Date.now() / 1000,
         timestamps: true
     };
 
-    container.logs(options, (err, stream) => {
-        if (path && stream && stream.statusCode == 200) {
+    container.logs(options, (err, buffer) => {
+        if (Buffer.isBuffer(buffer)) {
             const fs = require('fs');
-            let log_stream = fs.createWriteStream(path, { mode: 0o644 });
+            let demux = buffer.slice();
+            let demux_pos = 0;
 
-            console.log('');     // Doesn't work without this extra log
-            container.modem.demuxStream(stream, log_stream, log_stream);
-            stream.on('end', () => {
-                log_stream.end();
-                cb && cb();
-            });
+            while (buffer.length >= 8) {
+                const data_type = buffer.readUInt8(0);
+                const data_length = buffer.readUInt32BE(4);
+
+                buffer = buffer.slice(8);
+
+                if ((data_type == 1 || data_type == 2) && buffer.length >= data_length) {
+                    buffer.copy(demux, demux_pos, 0, data_length);
+
+                    buffer = buffer.slice(data_length);
+                    demux_pos += data_length;
+                } else {
+                    console.log('Demux failure:', data_type, data_length, buffer.length);
+                    break;
+                }
+            }
+
+            fs.writeFile(path, demux.slice(0, demux_pos), cb);
         } else {
             cb && cb(err);
         }
