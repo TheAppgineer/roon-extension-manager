@@ -606,13 +606,6 @@ function _register_version(name, update, err) {
             _set_status(`${display_name} ${err}`, false);
         } else {
             _set_status(`${display_name} loaded (v${repos.version})`, false);
-
-            // Mark pending updates for container recreation
-            for (const name in action_queue) {
-                if (name != REPOS_NAME && name != MANAGER_NAME && action_queue[name].action === ACTION_UPDATE) {
-                    action_queue[name].recreate = true;
-                }
-            }
         }
     }
 
@@ -691,7 +684,7 @@ function _get_log(index, cb) {
         const name = names[index];
         const log_file = log_dir + name + '.log';
 
-        _set_status(`Collecting logs of ${_get_display_name(name)}`);
+        _set_status(`Collecting logs of ${_get_display_name(name)}...`);
         docker.get_log(name, log_file, () => {
             _get_log(index + 1, cb);
         });
