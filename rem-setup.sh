@@ -80,26 +80,17 @@ if [ $USR != "root" ]; then
     fi
 fi
 
-# if [ -d $HOME/.RoonExtensions ]; then
-#     # Remove old installation
-#     echo -ne $RM_LEGCY
-#
-#     su -c "wget -q https://raw.githubusercontent.com/TheAppgineer/roon-extension-manager-packaging/master/linux/setup.sh" $USR
-#     if [ $? -gt 0 ]; then
-#         echo -e $FAIL
-#         exit 1
-#     else
-#         chmod +x setup.sh
-#         ./setup.sh --uninstall > /dev/null 2>&1
-#         rm setup.sh
-#         echo -e $OK
-#     fi
-# fi
-
 if [ -f "/etc/systemd/system/roon-extension-manager.service" ]; then
-    # Only disable the v0.x service for the moment, so that the user can switch back and forth
+    # Remove old installation
+    echo -ne $RM_LEGCY
+
+    # Disable and remove the old v0.x service
     systemctl --quiet stop roon-extension-manager
     systemctl --quiet disable roon-extension-manager
+
+    rm -f /etc/systemd/system/roon-extension-manager.service
+
+    echo -e $OK
 fi
 
 su -c "mkdir -p $ROOT_DIR" $USR
