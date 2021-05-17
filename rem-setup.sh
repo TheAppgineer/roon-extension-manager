@@ -1,7 +1,7 @@
 #!/bin/bash
 
-NAME=rem
-VERSION=1.0.0-beta3
+NAME=roon-extension-manager
+VERSION=1.0.0
 
 OK="[ \e[32mOK\e[0m ]"
 FAIL="[\e[31mFAIL\e[0m]"
@@ -16,7 +16,7 @@ DL_SCRPT='Downloading shell script...\t\t'
 DTECT_TZ='Detecting timezone...\t\t\t'
 SETUP_SV='Setting up service...\t\t\t'
 START_SV='Starting service...\t\t\t'
-WAIT_VOL='Waiting for volume creation...\t\t'
+WAIT_CNT='Waiting for container creation...\t'
 SET_UDEV='Setting udev rule for CD Ripper...\t'
 
 echo Roon Extension Manager setup script - version $VERSION
@@ -40,7 +40,8 @@ if [ -z "$USR" ]; then
 fi
 echo -e $OK
 
-ROOT_DIR=$(eval echo ~$USR)/.$NAME
+HOME_DIR=$(eval echo ~$USR)
+ROOT_DIR=$HOME_DIR/.$NAME
 
 if [ "$1" = "--uninstall" ]; then
     # Perform uninstall
@@ -61,8 +62,8 @@ fi
 
 # Check for Docker socket
 echo -ne $CHK_DOCK
-GRP=$(stat -c '%G' /var/run/docker.sock)
-GID=$(stat -c '%g' /var/run/docker.sock)
+GRP=$(stat -c '%G' /var/run/docker.sock 2> /dev/null)
+GID=$(stat -c '%g' /var/run/docker.sock 2> /dev/null)
 
 if [ $? -gt 0 ]; then
     echo -e $FAIL
@@ -80,17 +81,28 @@ if [ $USR != "root" ]; then
     fi
 fi
 
-if [ -f "/etc/systemd/system/roon-extension-manager.service" ]; then
+if [ -d "$HOME_DIR/.RoonExtensions/lib/node_modules/$NAME" ]; then
     # Remove old installation
     echo -ne $RM_LEGCY
 
     # Disable and remove the old v0.x service
-    systemctl --quiet stop roon-extension-manager
-    systemctl --quiet disable roon-extension-manager
+    systemctl --quiet stop $NAME
+    systemctl --quiet disable $NAME
 
-    rm -f /etc/systemd/system/roon-extension-manager.service
+    rm -f /etc/systemd/system/$NAME.service
+
+    rm -rf $HOME_DIR/.RoonExtensions/lib/node_modules/$NAME
 
     echo -e $OK
+fi
+
+if [ -f "/etc/systemd/system/rem.service" ]; then
+    # Disable and remove the beta service
+    systemctl --quiet stop rem
+    systemctl --quiet disable rem
+
+    rm -f /etc/systemd/system/rem.service
+    rm -rf $HOME_DIR/.rem
 fi
 
 su -c "mkdir -p $ROOT_DIR" $USR
@@ -98,7 +110,7 @@ su -c "mkdir -p $ROOT_DIR" $USR
 if [ ! -f "$NAME.sh" ]; then
     # Download shell script
     echo -ne $DL_SCRPT
-    su -c "wget -q https://raw.githubusercontent.com/TheAppgineer/roon-extension-manager/v1.x/$NAME.sh" $USR
+    su -c "wget -q https://raw.githubusercontent.com/TheAppgineer/$NAME/v1.x/$NAME.sh" $USR
     if [ $? -gt 0 ]; then
         echo -e $FAIL
         exit 1
@@ -170,11 +182,11 @@ systemctl --quiet start $NAME
 
 echo -e $OK
 
-# Wait for volume creation
-echo -ne $WAIT_VOL
+# Wait for container creation
+echo -ne $WAIT_CNT
 timeout=240
 
-until docker volume inspect rem_data > /dev/null 2>&1; do
+until docker container inspect $NAME > /dev/null 2>&1; do
     sleep 1s
     timeout=$((timeout-1))
 
@@ -184,6 +196,11 @@ until docker volume inspect rem_data > /dev/null 2>&1; do
     fi
 done
 echo -e $OK
+
+if [ -d "$HOME_DIR/.RoonExtensions/lib/binds" ]; then
+    # Copy existing binds to volume
+    docker cp $HOME_DIR/.RoonExtensions/lib/binds $NAME:/home/node/.rem
+fi
 
 if [ ! -f "/etc/udev/rules.d/80-audio-cd.rules" ]; then
     # Set udev rule for CD Ripper
