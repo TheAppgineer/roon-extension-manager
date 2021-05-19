@@ -145,7 +145,11 @@ function ApiExtensionInstaller(callbacks, features_file) {
 
 ApiExtensionInstaller.prototype.load_repository = function(cb) {
     _update_repository((name, err) => {
-        if (!err || err == 'already up to date') {
+        if (!err) {
+            _set_status(`${_get_display_name(name)} loaded (v${repos.version})`, false);
+
+            cb && cb(repos.version);
+        } else if (err == 'already up to date') {
             cb && cb(repos.version);
         } else {
             cb && cb();
@@ -552,7 +556,7 @@ function _install(name, options, cb) {
             // Store options for future update requests
             install_options[name] = options;
 
-            docker.install(_get_extension(name).image, get_bind_props(name), options, false, (err, tag) => {
+            docker.install(_get_extension(name).image, get_bind_props(name), options, true, (err, tag) => {
                 if (err) {
                     _set_status(`Installation failed: ${display_name}\n${err}`, true);
                 } else {
