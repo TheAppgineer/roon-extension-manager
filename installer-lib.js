@@ -700,10 +700,15 @@ function _get_log(index, cb) {
 
 function _start(name) {
     if (docker_installed[name]) {
-        docker.start(name);
+        docker.start(name, (err) => {
+            if (err) {
+                _set_status(`${_get_display_name(name)} failed to start:\n${err}`, true);
+            } else {
+                _set_status(`Started: ${_get_display_name(name)}`, false);
+            }
+        });
     }
 
-    _set_status(`Started: ${_get_display_name(name)}`, false);
 }
 
 function _restart(name) {

@@ -279,23 +279,23 @@ ApiExtensionInstallerDocker.prototype.uninstall = function(name, cb) {
     });
 }
 
-ApiExtensionInstallerDocker.prototype.start = function(name) {
+ApiExtensionInstallerDocker.prototype.start = function(name, cb) {
     const container = docker.getContainer(name);
 
     container.start((err) => {
-        container.inspect((err, info) => {
-            if (info) {
-                states[name] = info.State.Status;
-                container.update({ RestartPolicy: { Name: "unless-stopped", MaximumRetryCount: 0 } });
-            }
-        });
+        if (!err) {
+            container.inspect((err, info) => {
+                if (info) {
+                    states[name] = info.State.Status;
+                    container.update({ RestartPolicy: { Name: "unless-stopped", MaximumRetryCount: 0 } });
+                }
+
+                cb && cb(err);
+            });
+        } else {
+            cb && cb(err);
+        }
     });
-}
-
-ApiExtensionInstallerDocker.prototype.restart = function(name, cb) {
-    const container = docker.getContainer(name);
-
-    container.restart({ t: 10 });
 }
 
 ApiExtensionInstallerDocker.prototype.stop = function(name, cb) {
