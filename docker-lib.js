@@ -20,6 +20,7 @@ var docker;
 var docker_version;
 var installed = {};
 var states = {};
+var started_at = {};
 var log_config;
 var on_progress_cb;
 
@@ -55,6 +56,7 @@ ApiExtensionInstallerDocker.prototype.get_status = function(name) {
     if (name) {
         const tag = installed[name];
         let state;
+        let startup;
 
         state = (tag ? 'installed' : 'not_installed');
 
@@ -65,12 +67,15 @@ ApiExtensionInstallerDocker.prototype.get_status = function(name) {
             if (state == 'created' || state == 'exited') {
                 // Convert Docker specific states to generic stopped state
                 state = 'stopped';
+            } else if (state == 'running') {
+                startup = started_at[name];
             }
         }
 
         return {
-            state:   state,
-            tag:     tag
+            state,
+            tag,
+            startup
         };
     }
 }
@@ -287,6 +292,11 @@ ApiExtensionInstallerDocker.prototype.start = function(name, cb) {
             container.inspect((err, info) => {
                 if (info) {
                     states[name] = info.State.Status;
+
+                    if (states[name] == 'running') {
+                        started_at[name] = new Date(info.State.StartedAt).getTime();
+                    }
+
                     container.update({ RestartPolicy: { Name: "unless-stopped", MaximumRetryCount: 0 } });
                 }
 
@@ -305,6 +315,10 @@ ApiExtensionInstallerDocker.prototype.stop = function(name, cb) {
         container.inspect((err, info) => {
             if (info) {
                 states[name] = info.State.Status;
+            }
+
+            if (states[name] != 'running') {
+                delete started_at[name];
             }
 
             cb && cb();
@@ -491,19 +505,21 @@ function _install(repo_tag_string, config, recreate, cb) {
                     config.name  = name;
                     config.Image = repo_tag_string;
 
-                    if (installed[name]) {
-                        const container = docker.getContainer(name);
+                    ApiExtensionInstallerDocker.prototype.terminate.call(this, name, () => {
+                        if (installed[name]) {
+                            const container = docker.getContainer(name);
 
-                        container.remove((err) => {
-                            if (err) {
-                                cb && cb(err);
-                            } else {
-                                _create_container(config, cb);
-                            }
-                        });
-                    } else {
-                        _create_container(config, cb);
-                    }
+                            container.remove((err) => {
+                                if (err) {
+                                    cb && cb(err);
+                                } else {
+                                    _create_container(config, cb);
+                                }
+                            });
+                        } else {
+                            _create_container(config, cb);
+                        }
+                    });
                 } else {
                     cb && cb();
                 }
@@ -563,6 +579,16 @@ function _query_installs(cb, image_name) {
 
                 if (states[name] != 'terminated') {
                     states[name] = container.State.toLowerCase();
+                }
+
+                if (states[name] == 'running') {
+                    const container = docker.getContainer(name);
+
+                    container.inspect((err, info) => {
+                        if (info) {
+                            started_at[name] = new Date(info.State.StartedAt).getTime();
+                        }
+                    });
                 }
             });
 

@@ -64,6 +64,7 @@ const ApiExtensionInstallerDocker = require('./docker-lib');
 var docker;
 var features;
 var repos = {};
+var pull_counters = {};
 var index_cache = {};
 var docker_installed = {};
 var install_options;
@@ -145,6 +146,8 @@ function ApiExtensionInstaller(callbacks, features_file) {
 
 ApiExtensionInstaller.prototype.load_repository = function(cb) {
     _update_repository((name, err) => {
+        pull_counters = {};   // Get fresh pull counts
+
         if (!err) {
             _set_status(`${_get_display_name(name)} loaded (v${repos.version})`, false);
 
@@ -202,7 +205,8 @@ ApiExtensionInstaller.prototype.get_details = function(name) {
         author:       extension.author,
         packager:     extension.packager,
         display_name: extension.display_name,
-        description:  extension.description
+        description:  extension.description,
+        pull_count:   pull_counters[name]
     };
 }
 
@@ -263,6 +267,25 @@ ApiExtensionInstaller.prototype.get_extension_settings = function(name, cb) {
 
             cb && cb(options);
         });
+    }
+}
+
+ApiExtensionInstaller.prototype.get_extension_pull_count = function(name, cb) {
+    let extension = name && _get_extension(name);
+
+    if (extension && !pull_counters[name]) {
+        const url = `https://hub.docker.com/v2/repositories/${extension.image.repo}/`;
+
+        // https://forums.docker.com/t/api-to-read-the-pull-counter/66993/2
+        _download(url, (err, data) => {
+            if (data) {
+                pull_counters[name] = JSON.parse(data).pull_count;
+            }
+
+            cb && cb();
+        });
+    } else {
+        cb && cb();
     }
 }
 
@@ -334,7 +357,9 @@ function _create_action_pair(action) {
 }
 
 function _update_repository(cb) {
-    _download_repository((data) => {
+    const url = "https://raw.githubusercontent.com/TheAppgineer/roon-extension-repository/v1.x/repository.json";
+
+    _download(url, (err, data) => {
         if (data) {
             const parsed = JSON.parse(data);
             // TODO: Check layout compatibility:
@@ -353,9 +378,8 @@ function _update_repository(cb) {
     });
 }
 
-function _download_repository(cb) {
+function _download(url, cb) {
     const https = require('https');
-    const url = "https://raw.githubusercontent.com/TheAppgineer/roon-extension-repository/v1.x/repository.json";
 
     https.get(url, (response) => {
         if (response.statusCode == 200) {
@@ -365,19 +389,13 @@ function _download_repository(cb) {
                 body += data;
             });
             response.on('end', () => {
-                cb && cb(body);
+                cb && cb(undefined, body);
             });
         } else {
-            if (response.statusCode == 404) {
-                console.log('repository.json file not found');
-            } else {
-                console.error(data.toString());
-            }
-
-            cb && cb();
+            cb && cb(response.statusCode);
         }
     }).on('error', (err) => {
-        console.error(err);
+        cb && cb(err);
     });
 }
 
@@ -598,7 +616,7 @@ function _register_version(name, update, err) {
             if (update) {
                 const state = ApiExtensionInstaller.prototype.get_status.call(this, name).state;
 
-                if (state != 'stopped') {
+                if (state != 'stopped' && state != 'running') {
                     _start(name);
                 }
             } else {
@@ -620,36 +638,34 @@ function _register_version(name, update, err) {
 
 function _update(name, recreate, cb) {
     if (name) {
-        _stop(name, false, () => {
-            _set_status(`Updating: ${_get_display_name(name)}...`, false);
+        _set_status(`Updating: ${_get_display_name(name)}...`, false);
 
-            if (name == REPOS_NAME) {
-                _update_repository(cb);
-            } else if (docker_installed[name]) {
-                const image = _get_extension(name).image;
-                const bind_props = get_bind_props(name);
-                const options = install_options[name];
+        if (name == REPOS_NAME) {
+            _update_repository(cb);
+        } else if (docker_installed[name]) {
+            const image = _get_extension(name).image;
+            const bind_props = get_bind_props(name);
+            const options = install_options[name];
 
-                if (options) {
-                    docker.install(image, bind_props, options, recreate, (err) => {
+            if (options) {
+                docker.install(image, bind_props, options, recreate, (err) => {
+                    cb && cb(name, err);
+                });
+            } else {
+                docker.get_options_from_container(image, (err, options) => {
+                    if (err) {
                         cb && cb(name, err);
-                    });
-                } else {
-                    docker.get_options_from_container(image, (err, options) => {
-                        if (err) {
-                            cb && cb(name, err);
-                        } else {
-                            // Store options for future update requests
-                            install_options[name] = options;
+                    } else {
+                        // Store options for future update requests
+                        install_options[name] = options;
 
-                            docker.install(image, bind_props, options, recreate, (err) => {
-                                cb && cb(name, err);
-                            });
-                        }
-                    });
-                }
+                        docker.install(image, bind_props, options, recreate, (err) => {
+                            cb && cb(name, err);
+                        });
+                    }
+                });
             }
-        });
+        }
     }
 }
 

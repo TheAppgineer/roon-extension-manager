@@ -39,7 +39,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "1.0.0",
+    display_version:     "1.1.0",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
@@ -64,7 +64,7 @@ var svc_settings = new RoonApiSettings(roon, {
     get_settings: function(cb) {
         pending_actions = {};           // Start off with a clean list
 
-        get_settings_data(undefined, ext_settings, () => {
+        get_settings_data(ext_settings, () => {
             cb(makelayout(ext_settings));
         });
     },
@@ -199,6 +199,7 @@ function makelayout(settings) {
             } else {
                 author.title = "by: " + details.author;
             }
+            author.title += `\nPulls: ${get_rounded_pull_count(details.pull_count)}`;
 
             if (details.description) {
                 extension.title = details.description;
@@ -209,6 +210,10 @@ function makelayout(settings) {
             status_string.title  = status.state.toUpperCase();
             status_string.title += (status.version ? ": version " + status.version : "");
             status_string.title += (status.tag ? ": tag " + status.tag : "");
+
+            if (status.startup) {
+                status_string.title += `\nUptime: ${get_up_time(status.startup)}`;
+            }
 
             if (installer.is_idle(name)) {
                 if (is_pending(name)) {
@@ -270,6 +275,99 @@ function makelayout(settings) {
     });
 
     return l;
+}
+
+function get_rounded_pull_count(pull_count) {
+    let divider = 1;
+    let digit = 0;
+
+    while (pull_count / divider > 999) {
+        digit++;
+        divider *= 10;
+    }
+
+    const rounded_pull_count = `${Math.round(pull_count / divider)}`;
+    let result;
+
+    if (digit % 3) {
+        const before_dot = rounded_pull_count.slice(0, digit % 3);
+        const after_dot = rounded_pull_count.slice(digit % 3);
+
+        result = `${before_dot}.${after_dot}`;
+    } else {
+        result = rounded_pull_count;
+    }
+
+    switch (digit) {
+        case 0: //  xxx
+            break;
+        case 1: // x.xxk
+        case 2: // xx.xk
+        case 3: //  xxxk
+            result += 'k';
+            break;
+        case 4: // x.xxM
+        case 5: // xx.xM
+        case 6: //  xxxM
+            result += 'M';
+            break;
+        default:
+            result = `${pull_count}`.slice(0, -6) + 'M';
+            break
+    }
+
+    return result;
+}
+
+function get_up_time(startup_time) {
+    const start = new Date(startup_time).getTime();
+    let diff = Math.floor((Date.now() - start) / 1000);     // seconds
+    let unit;
+
+    if (diff < 60) {
+        unit = (diff == 1 ? 'second' : 'seconds')
+        return `${diff} ${unit}`;
+    }
+
+    diff = Math.floor(diff / 60);                           // minutes
+
+    if (diff < 60) {
+        unit = (diff == 1 ? 'minute' : 'minutes')
+        return `${diff} ${unit}`;
+    }
+
+    diff = Math.floor(diff / 60);                           // hours
+
+    if (diff < 24) {
+        unit = (diff == 1 ? 'hour' : 'hours')
+        return `${diff} ${unit}`;
+    }
+
+    diff = Math.floor(diff / 24);                           // days
+
+    if (diff < 7) {
+        unit = (diff == 1 ? 'day' : 'days')
+        return `${diff} ${unit}`;
+    }
+
+    if (diff < 30) {
+        diff = Math.floor(diff / 7);                        // weeks
+
+        unit = (diff = 1 ? 'week' : 'weeks')
+        return `${diff} ${unit}`;
+    }
+
+    if (diff < 365) {
+        diff = Math.floor(diff / 30);                       // months
+
+        unit = (diff == 1 ? 'month' : 'months')
+        return `${diff} ${unit}`;
+    }
+
+    diff = Math.floor(diff / 365);                          // years
+
+    unit = (diff == 1 ? 'year' : 'years')
+    return `${diff} ${unit}`;
 }
 
 function create_option_items(options, settings) {
@@ -382,17 +480,17 @@ function get_user_settings(settings) {
     return docker;
 }
 
-function get_settings_data(options, settings, cb) {
+function get_settings_data(settings, cb) {
     if (installer.is_idle()) {
         installer.load_repository((version) => {
             if (version) {
                 settings.repo_version = version;
             }
 
-            get_installation_settings(options, settings, cb);
+            get_installation_settings(undefined, settings, cb);
         });
     } else {
-        get_installation_settings(options, settings, cb);
+        get_installation_settings(undefined, settings, cb);
     }
 }
 
@@ -400,25 +498,27 @@ function get_installation_settings(options, settings, cb) {
     // Get the settings from the installed instance of the extension
     const name = settings.selected_extension;
 
-    if (!name || (options && options[name])) {
-        cb && cb();
-    } else {
-        installer.get_extension_settings(name, (options) => {
-            // Inject options in settings
-            // Keys are in the form: docker_<name>_<field_type>_<field_name>
-            for (const field_type in options) {
-                for (const field_name in options[field_type]) {
-                    if (field_type == 'env') {
-                        settings[`docker_${name}_${field_type}_${field_name}`] = options[field_type][field_name];
-                    } else {
-                        settings[`docker_${name}_${field_type}_${options[field_type][field_name]}`] = field_name;
+    installer.get_extension_pull_count(name, () => {
+        if (!name || (options && options[name])) {
+            cb && cb();
+        } else {
+            installer.get_extension_settings(name, (options) => {
+                // Inject options in settings
+                // Keys are in the form: docker_<name>_<field_type>_<field_name>
+                for (const field_type in options) {
+                    for (const field_name in options[field_type]) {
+                        if (field_type == 'env') {
+                            settings[`docker_${name}_${field_type}_${field_name}`] = options[field_type][field_name];
+                        } else {
+                            settings[`docker_${name}_${field_type}_${options[field_type][field_name]}`] = field_name;
+                        }
                     }
                 }
-            }
 
-            cb && cb();
-        });
-    }
+                cb && cb();
+            });
+        }
+    });
 }
 
 function remove_docker_options(settings) {
