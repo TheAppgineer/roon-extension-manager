@@ -173,15 +173,16 @@ function makelayout(settings) {
     category.values = category.values.concat(category_list);
 
     if (category_index !== undefined && category_index < category_list.length) {
+        let name = undefined;
+        let display_name = undefined;
+
         extension_list = installer.get_extensions_by_category(category_index);
         selector.values = selector.values.concat(extension_list);
-        selector.title = category_list[category_index].title + ' Extension';
-
-        let name = undefined;
 
         for (let i = 0; i < extension_list.length; i++) {
             if (extension_list[i].value == settings.selected_extension) {
                 name = settings.selected_extension;
+                display_name = extension_list[i].title;
                 break;
             }
         }
@@ -199,10 +200,22 @@ function makelayout(settings) {
             } else {
                 author.title = "by: " + details.author;
             }
-            author.title += `\nPulls: ${get_rounded_pull_count(details.pull_count)}`;
+
+            if (details.stats) {
+                author.title += `\nPulls: ${get_rounded_count(details.stats.pull_count)}`;
+                author.title += `, Stars: ${get_rounded_count(details.stats.star_count)}`;
+            } else {
+                author.title += '\nPulls: -, Stars: -';
+            }
 
             if (details.description) {
-                extension.title = details.description;
+                if (details.stats && details.stats.starred !== undefined) {
+                    extension.title = (details.stats.starred ? '\u2605 ' : '\u2606 ');
+                } else {
+                    extension.title = '';
+                }
+
+                extension.title += `${display_name}\n${details.description}`;
             } else {
                 extension.title = "(no description)";
             }
@@ -277,16 +290,16 @@ function makelayout(settings) {
     return l;
 }
 
-function get_rounded_pull_count(pull_count) {
+function get_rounded_count(count) {
     let divider = 1;
     let digit = 0;
 
-    while (pull_count / divider > 999) {
+    while (count / divider > 999) {
         digit++;
         divider *= 10;
     }
 
-    const rounded_pull_count = `${Math.round(pull_count / divider)}`;
+    const rounded_pull_count = `${Math.round(count / divider)}`;
     let result;
 
     if (digit % 3) {
@@ -312,7 +325,7 @@ function get_rounded_pull_count(pull_count) {
             result += 'M';
             break;
         default:
-            result = `${pull_count}`.slice(0, -6) + 'M';
+            result = `${count}`.slice(0, -6) + 'M';
             break
     }
 
@@ -498,27 +511,27 @@ function get_installation_settings(options, settings, cb) {
     // Get the settings from the installed instance of the extension
     const name = settings.selected_extension;
 
-    installer.get_extension_pull_count(name, () => {
-        if (!name || (options && options[name])) {
-            cb && cb();
-        } else {
-            installer.get_extension_settings(name, (options) => {
-                // Inject options in settings
-                // Keys are in the form: docker_<name>_<field_type>_<field_name>
-                for (const field_type in options) {
-                    for (const field_name in options[field_type]) {
-                        if (field_type == 'env') {
-                            settings[`docker_${name}_${field_type}_${field_name}`] = options[field_type][field_name];
-                        } else {
-                            settings[`docker_${name}_${field_type}_${options[field_type][field_name]}`] = field_name;
-                        }
+    installer.get_extension_stats(name);
+
+    if (!name || (options && options[name])) {
+        cb && cb();
+    } else {
+        installer.get_extension_settings(name, (options) => {
+            // Inject options in settings
+            // Keys are in the form: docker_<name>_<field_type>_<field_name>
+            for (const field_type in options) {
+                for (const field_name in options[field_type]) {
+                    if (field_type == 'env') {
+                        settings[`docker_${name}_${field_type}_${field_name}`] = options[field_type][field_name];
+                    } else {
+                        settings[`docker_${name}_${field_type}_${options[field_type][field_name]}`] = field_name;
                     }
                 }
+            }
 
-                cb && cb();
-            });
-        }
-    });
+            cb && cb();
+        });
+    }
 }
 
 function remove_docker_options(settings) {

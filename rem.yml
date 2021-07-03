@@ -12,7 +12,5 @@ services:
     environment:
       - TZ=${TZ}
     network_mode: host
-    logging:
-      driver: journald
 volumes:
   rem_data:

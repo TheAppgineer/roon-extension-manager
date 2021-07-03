@@ -41,6 +41,8 @@ const ACTION_UNINSTALL = 3;
 const ACTION_START = 4;
 const ACTION_RESTART = 5;
 const ACTION_STOP = 6;
+const ACTION_STAR = 7;
+const ACTION_UNSTAR = 8;
 
 const action_strings = [
     '',
@@ -49,7 +51,9 @@ const action_strings = [
     'Uninstall',
     'Start',
     'Restart',
-    'Stop'
+    'Stop',
+    '\u2605 Star',
+    '\u2606 Unstar'
 ];
 
 const log_dir = 'log/';
@@ -60,11 +64,13 @@ const perform_update = 66;
 
 const fs = require('fs');
 const ApiExtensionInstallerDocker = require('./docker-lib');
+const ApiDockerHub = require('./docker-hub');
 
 var docker;
+var docker_hub;
 var features;
 var repos = {};
-var pull_counters = {};
+var stats_cache = {};
 var index_cache = {};
 var docker_installed = {};
 var install_options;
@@ -140,13 +146,15 @@ function ApiExtensionInstaller(callbacks, features_file) {
                     _set_status(status_string);
                 }
             });
+
+            docker_hub = new ApiDockerHub();
         }
     });
 }
 
 ApiExtensionInstaller.prototype.load_repository = function(cb) {
     _update_repository((name, err) => {
-        pull_counters = {};   // Get fresh pull counts
+        stats_cache = {};   // Get fresh stats
 
         if (!err) {
             _set_status(`${_get_display_name(name)} loaded (v${repos.version})`, false);
@@ -206,7 +214,7 @@ ApiExtensionInstaller.prototype.get_details = function(name) {
         packager:     extension.packager,
         display_name: extension.display_name,
         description:  extension.description,
-        pull_count:   pull_counters[name]
+        stats:        stats_cache[name]
     };
 }
 
@@ -216,23 +224,33 @@ ApiExtensionInstaller.prototype.get_actions = function(name) {
 
     if (state == 'not_installed') {
         actions.push(_create_action_pair(ACTION_INSTALL));
-    } else if (name == MANAGER_NAME) {
-        if (!features || features.self_update != 'off') {
-            actions.push(_create_action_pair(ACTION_UPDATE));
-        }
-
-        if (state == 'running') {
-            actions.push(_create_action_pair(ACTION_RESTART));
-        }
     } else {
-        actions.push(_create_action_pair(ACTION_UPDATE));
-        actions.push(_create_action_pair(ACTION_UNINSTALL));
+        if (name == MANAGER_NAME) {
+            if (!features || features.self_update != 'off') {
+                actions.push(_create_action_pair(ACTION_UPDATE));
+            }
 
-        if (state == 'running') {
-            actions.push(_create_action_pair(ACTION_RESTART));
-            actions.push(_create_action_pair(ACTION_STOP));
+            if (state == 'running') {
+                actions.push(_create_action_pair(ACTION_RESTART));
+            }
         } else {
-            actions.push(_create_action_pair(ACTION_START));
+            actions.push(_create_action_pair(ACTION_UPDATE));
+            actions.push(_create_action_pair(ACTION_UNINSTALL));
+
+            if (state == 'running') {
+                actions.push(_create_action_pair(ACTION_RESTART));
+                actions.push(_create_action_pair(ACTION_STOP));
+            } else {
+                actions.push(_create_action_pair(ACTION_START));
+            }
+        }
+
+        if (stats_cache[name]) {
+            if (stats_cache[name].starred === true) {
+                actions.push(_create_action_pair(ACTION_UNSTAR));
+            } else if (stats_cache[name].starred === false) {
+                actions.push(_create_action_pair(ACTION_STAR));
+            }
         }
     }
 
@@ -270,22 +288,16 @@ ApiExtensionInstaller.prototype.get_extension_settings = function(name, cb) {
     }
 }
 
-ApiExtensionInstaller.prototype.get_extension_pull_count = function(name, cb) {
+ApiExtensionInstaller.prototype.get_extension_stats = function(name) {
     let extension = name && _get_extension(name);
 
-    if (extension && !pull_counters[name]) {
-        const url = `https://hub.docker.com/v2/repositories/${extension.image.repo}/`;
-
-        // https://forums.docker.com/t/api-to-read-the-pull-counter/66993/2
-        _download(url, (err, data) => {
-            if (data) {
-                pull_counters[name] = JSON.parse(data).pull_count;
+    if (extension && !stats_cache[name]) {
+        docker_hub.get_stats(extension.image.repo, (stats) => {
+            if (stats) {
+                stats_cache[name] = stats;
+                on_activity_changed && on_activity_changed();
             }
-
-            cb && cb();
         });
-    } else {
-        cb && cb();
     }
 }
 
