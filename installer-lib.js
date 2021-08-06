@@ -58,6 +58,7 @@ const action_strings = [
 
 const log_dir = 'log/';
 const data_root = `${process.cwd()}/.rem/`;
+const credentials_file = data_root + '/.hub';
 const repos_dir = 'repos/';
 const binds_dir = 'binds/';
 const perform_update = 66;
@@ -329,6 +330,14 @@ ApiExtensionInstaller.prototype.perform_actions = function(actions) {
             case ACTION_STOP:
                 _stop(name, true);
                 break;
+            case ACTION_STAR:
+                docker_hub.star(_get_extension(name).image.repo, () => {
+                });
+                break;
+            case ACTION_UNSTAR:
+                docker_hub.unstar(_get_extension(name).image.repo, () => {
+                });
+                break;
         }
 
         // Consume action
@@ -359,6 +368,59 @@ ApiExtensionInstaller.prototype.get_logs_archive = function(cb) {
     const options = { gzip: true };
 
     cb && cb(tar.create(options, [log_dir]));
+}
+
+ApiExtensionInstaller.prototype.docker_hub_login = function(username, password) {
+    if (username && username.length && password && password.length) {
+        docker_hub.login(username, password,  (err, detail) => {
+            if (err) {
+                _set_status(`Docker Hub: Login failed\n${detail}`, true);
+            } else {
+                _set_status('Docker Hub: Login successful');
+            }
+        });
+    }
+}
+
+ApiExtensionInstaller.prototype.docker_hub_logout = function(cb) {
+    docker_hub.logout((status_code, detail) => {
+        if (detail) {
+            console.log(`Docker Hub: ${detail}`);
+        } else if (status_code) {
+            console.log(`Docker Hub: ${status_code}`);
+        }
+
+        cb && cb();
+    });
+}
+
+ApiExtensionInstaller.prototype.get_docker_hub_credentials = function(cb) {
+    fs.readFile(credentials_file, (err, data) => {
+        let username = '';
+        let password = '';
+
+        if (!err && data.length) {
+            const credentials = data.toString().split('\n');
+            username = credentials[0].split('=')[1].trim();
+
+            if (credentials.length > 1) {
+                password = credentials[1].split('=')[1].trim();
+            }
+        }
+
+        cb && cb(username, password);
+    });
+}
+
+ApiExtensionInstaller.prototype.store_docker_hub_credentials = function(username, password) {
+    let credentials = '';
+
+    if (username && username.length && password && password.length) {
+        credentials += `username = ${username}`;
+        credentials +=`\npassword = ${password}`;
+    }
+
+    fs.writeFileSync(credentials_file, credentials, { mode: 0o600 });
 }
 
 function _create_action_pair(action) {
@@ -776,14 +838,16 @@ function _stop(name, user, cb) {
 }
 
 function _terminate(exit_code) {
-    // Save install_options to file
-    fs.writeFileSync(`${data_root}install-options.json`, JSON.stringify(install_options));
+    ApiExtensionInstaller.prototype.docker_hub_logout.call(this, () => {
+        // Save install_options to file
+        fs.writeFileSync(`${data_root}install-options.json`, JSON.stringify(install_options));
 
-    if (exit_code) {
-        process.exit(exit_code);
-    } else {
-        process.exit(0);
-    }
+        if (exit_code) {
+            process.exit(exit_code);
+        } else {
+            process.exit(0);
+        }
+    });
 }
 
 function _handle_signal(signal) {

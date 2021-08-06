@@ -22,16 +22,33 @@ function ApiDockerHub() {
 }
 
 ApiDockerHub.prototype.login = function(username, password, cb) {
-    _send_request('POST', '/v2/users/login/', { username, password }, (body) => {
-        user = username;
-        token = body.token;
+    _send_request('POST', '/v2/users/login/', { username, password }, (status_code, body) => {
+        if (status_code === 200 && body.token) {
+            user = username;
+            token = body.token;
 
-        cb && cb();
+            cb && cb();
+        } else {
+            cb && cb(status_code, body && body.detail);
+        }
     });
 }
 
+ApiDockerHub.prototype.logout = function(cb) {
+    if (token) {
+        _send_request('POST', '/v2/logout/', {}, (status_code, body) => {
+            token = undefined;
+            user = undefined;
+
+            cb && cb(status_code, body && body.detail);
+        });
+    } else {
+        cb && cb();
+    }
+}
+
 ApiDockerHub.prototype.get_stats = function(repo, cb) {
-    _send_request('GET', `/v2/repositories/${repo}/`, undefined, (body) => {
+    _send_request('GET', `/v2/repositories/${repo}/`, undefined, (status_code, body) => {
         if (body) {
             let stats = {};
 
@@ -52,23 +69,19 @@ ApiDockerHub.prototype.get_stats = function(repo, cb) {
 }
 
 ApiDockerHub.prototype.star = function(repo, cb) {
-    _send_request('POST', `/v2/repositories/${repo}/stars/`, {}, (body) => {
-        console.log(body);
-
-        _get_star_givers(repo, cb);
+    _send_request('POST', `/v2/repositories/${repo}/stars/`, {}, (status_code, body) => {
+        cb && cb(status_code, body && body.detail);
     });
 }
 
 ApiDockerHub.prototype.unstar = function(repo, cb) {
-    _send_request('DELETE', `/v2/repositories/${repo}/stars/`, {}, (body) => {
-        console.log(body);
-
-        _get_star_givers(repo, cb);
+    _send_request('DELETE', `/v2/repositories/${repo}/stars/`, {}, (status_code, body) => {
+        cb && cb(status_code, body && body.detail);
     });
 }
 
 function _get_star_givers(repo, cb) {
-    _send_request('GET', `/v2/repositories/${repo}/stars/`, undefined, (body) => {
+    _send_request('GET', `/v2/repositories/${repo}/stars/`, undefined, (status_code, body) => {
         if (body) {
             const star_givers = body.list
 
@@ -96,7 +109,7 @@ function _send_request(method, path, data, cb) {
         }
     };
 
-    if (token) {
+    if (token || path.includes('login')) {
         options.headers.Authorization = `JWT ${token}`;
     } else if (method != 'GET') {
         cb && cb();
@@ -105,16 +118,18 @@ function _send_request(method, path, data, cb) {
     }
 
     const req = https.request(options, (response) => {
-        if (response.statusCode == 200) {
-            let body = "";
+        let body = '';
 
-            response.on('data', (data) => {
-                body += data;
-            });
-            response.on('end', () => {
-                cb && cb(JSON.parse(body));
-            });
-        }
+        response.on('data', (data) => {
+            body += data;
+        });
+        response.on('end', () => {
+            if (body.length) {
+                cb && cb(response.statusCode, JSON.parse(body));
+            } else {
+                cb && cb(response.statusCode);
+            }
+        });
     });
 
     req.on('error', (err) => {
