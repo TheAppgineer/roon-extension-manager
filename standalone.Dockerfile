@@ -8,11 +8,11 @@ RUN addgroup -g 1000 node && \
 
 WORKDIR /home/node
 
-COPY manager.js installer-lib.js docker-lib.js package.json LICENSE /home/node/
+COPY manager.js installer-lib.js docker-lib.js docker-hub.js package.json LICENSE /home/node/
 
-RUN apk add --no-cache tzdata git npm && \
+RUN apk add --no-cache tzdata g++ git linux-headers make cmake python3 npm && \
     npm install && \
-    apk del git npm && \
+    apk del g++ git linux-headers make cmake python3 npm && \
     mkdir -p .rem && \
     ln -s .rem/config.json config.json && \
     chown -R node:node .rem/
