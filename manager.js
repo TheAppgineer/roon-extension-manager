@@ -36,7 +36,6 @@ var ping_timer_id = null;
 var watchdog_timer_id = null;
 var last_message;
 var last_is_error;
-var docker_hub_password = '';
 
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
@@ -74,11 +73,9 @@ var svc_settings = new RoonApiSettings(roon, {
         update_pending_actions(settings.values, (settings) => {
             let l = makelayout(settings);
 
-            hide_password(l.values);
             req.send_complete(l.has_error ? "NotValid" : "Success", { settings: l });
 
             if (!isdryrun && !l.has_error) {
-                store_credentials(l.values);
                 remove_docker_options(l.values);
                 ext_settings = l.values;
                 svc_settings.update_settings(l);
@@ -126,67 +123,11 @@ http.createServer(function(request, response) {
     });
 }).listen(PORT);
 
-function get_credentials(settings, cb) {
-    installer.get_docker_hub_credentials((username, password) => {
-        let new_settings = {};
-
-        // Copy settings
-        for (const key in settings) {
-            new_settings[key] = settings[key];
-        }
-
-        new_settings.user = username;
-        new_settings.password = ''
-
-        for (let i = 0; i < password.length; i++) {
-            new_settings.password += '\u2022';
-        }
-
-        cb && cb(new_settings);
-    });
-}
-
-function store_credentials(settings) {
-    if (docker_hub_password.length) {
-        // Changed password
-        installer.store_docker_hub_credentials(settings.user, docker_hub_password);
-        installer.docker_hub_login(settings.user, docker_hub_password);
-
-        docker_hub_password = '';
-    } else if (settings.password == '') {
-        // Cleared password
-        installer.store_docker_hub_credentials();
-        installer.docker_hub_logout();
-    }
-
-    delete settings.user;
-    delete settings.password;
-}
-
-function hide_password(settings) {
-    const password = settings.password.replace(/\u2022/g, '');
-
-    if (password) {
-        docker_hub_password = password;
-        settings.password = '';
-
-        for (let i = 0; i < password.length; i++) {
-            settings.password += '\u2022';
-        }
-    }
-}
-
 function makelayout(settings) {
     let l = {
         values:    settings,
         layout:    [],
         has_error: false
-    };
-    let global_items = {
-        type:        "group",
-        title:       "[GLOBAL]",
-        collapsable: true,
-        items:       []
     };
     let update = {
         type:    "string",
@@ -243,7 +184,6 @@ function makelayout(settings) {
 
     if (category_index !== undefined && category_index < category_list.length) {
         let name = undefined;
-        let display_name = undefined;
 
         extension_list = installer.get_extensions_by_category(category_index);
         selector.values = selector.values.concat(extension_list);
@@ -251,7 +191,6 @@ function makelayout(settings) {
         for (let i = 0; i < extension_list.length; i++) {
             if (extension_list[i].value == settings.selected_extension) {
                 name = settings.selected_extension;
-                display_name = extension_list[i].title;
                 break;
             }
         }
@@ -271,20 +210,13 @@ function makelayout(settings) {
             }
 
             if (details.stats) {
-                author.title += `\nPulls: ${get_rounded_count(details.stats.pull_count)}`;
-                author.title += `, Stars: ${get_rounded_count(details.stats.star_count)}`;
+                author.title += `\nDownloads: ${get_rounded_count(details.stats.pull_count)}`;
             } else {
-                author.title += '\nPulls: -, Stars: -';
+                author.title += '\nDownloads: -';
             }
 
             if (details.description) {
-                if (details.stats && details.stats.starred !== undefined) {
-                    extension.title = (details.stats.starred ? '\u2605 ' : '\u2606 ');
-                } else {
-                    extension.title = '';
-                }
-
-                extension.title += `${display_name}\n${details.description}`;
+                extension.title = details.description;
             } else {
                 extension.title = "(no description)";
             }
@@ -328,37 +260,18 @@ function makelayout(settings) {
     }
 
     if (!features || features.auto_update != 'off') {
-        global_items.items.push(update);
+        l.layout.push(update);
     }
 
-    global_items.items.push({
+    l.layout.push({
         type:    "dropdown",
-        title:   "Action",
+        title:   "Global Action",
         values:  [
             { title: "(select action)", value: undefined   },
             { title: "Collect Logs",    value: GLOBAL_LOGS }
         ],
         setting: "global_action"
     });
-
-    global_items.items.push({
-        type:        "group",
-        title:       "Docker Hub account",
-        subtitle:    "hub.docker.com/signup",
-        collapsable: true,
-        items: [{
-            type:    "string",
-            title:   "User Name",
-            setting: "user"
-        },
-        {
-            type:    "string",
-            title:   "Password",
-            setting: "password"
-        }]
-    });
-
-    l.layout.push(global_items);
 
     l.layout.push({
         type:  "group",
@@ -582,19 +495,17 @@ function get_user_settings(settings) {
 }
 
 function get_settings_data(settings, cb) {
-    get_credentials(settings, (settings) => {
-        if (installer.is_idle()) {
-            installer.load_repository((version) => {
-                if (version) {
-                    settings.repo_version = version;
-                }
+    if (installer.is_idle()) {
+        installer.load_repository((version) => {
+            if (version) {
+                settings.repo_version = version;
+            }
 
-                get_installation_settings(undefined, settings, cb);
-            });
-        } else {
             get_installation_settings(undefined, settings, cb);
-        }
-    });
+        });
+    } else {
+        get_installation_settings(undefined, settings, cb);
+    }
 }
 
 function get_installation_settings(options, settings, cb) {
@@ -815,10 +726,6 @@ function init() {
     roon.extension_reginfo.display_name += " @" + hostname;
 
     set_update_timer();
-
-    installer.get_docker_hub_credentials((username, password) => {
-        installer.docker_hub_login(username, password);
-    });
 }
 
 init();
