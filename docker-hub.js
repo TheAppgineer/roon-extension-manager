@@ -124,7 +124,7 @@ function _send_request(method, path, data, cb) {
             body += data;
         });
         response.on('end', () => {
-            if (body.length) {
+            if (response.statusCode === 200 && body.length) {
                 cb && cb(response.statusCode, JSON.parse(body));
             } else {
                 cb && cb(response.statusCode);

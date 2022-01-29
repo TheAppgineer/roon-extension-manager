@@ -40,7 +40,7 @@ var last_is_error;
 var roon = new RoonApi({
     extension_id:        'com.theappgineer.extension-manager',
     display_name:        "Roon Extension Manager",
-    display_version:     "1.1.0",
+    display_version:     "1.1.1",
     publisher:           'The Appgineer',
     email:               'theappgineer@gmail.com',
     website:             `http://${get_ip()}:${PORT}/extension-logs.tar.gz`,
@@ -367,7 +367,7 @@ function get_up_time(startup_time) {
     if (diff < 30) {
         diff = Math.floor(diff / 7);                        // weeks
 
-        unit = (diff = 1 ? 'week' : 'weeks')
+        unit = (diff == 1 ? 'week' : 'weeks')
         return `${diff} ${unit}`;
     }
 

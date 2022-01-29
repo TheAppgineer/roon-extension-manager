@@ -279,13 +279,19 @@ ApiExtensionInstaller.prototype.get_extension_settings = function(name, cb) {
     if (options || name == REPOS_NAME) {
         cb && cb(options);
     } else {
-        docker.get_options_from_container(_get_extension(name).image, (err, options) => {
-            if (options) {
-                install_options[name] = options;
-            }
+        const extension = _get_extension(name);
 
-            cb && cb(options);
-        });
+        if (extension) {
+            docker.get_options_from_container(extension.image, (err, options) => {
+                if (options) {
+                    install_options[name] = options;
+                }
+
+                cb && cb(options);
+            });
+        } else {
+            cb && cb({});
+        }
     }
 }
 
@@ -434,7 +440,11 @@ function _update_repository(cb) {
     const url = "https://raw.githubusercontent.com/TheAppgineer/roon-extension-repository/v1.x/repository.json";
 
     _download(url, (err, data) => {
-        if (data) {
+        if (err) {
+            _set_status(`Repository download failed: ${err}`, true);
+            // Retry later
+            setTimeout(_update_repository, 60000, cb);
+        } else if (data) {
             const parsed = JSON.parse(data);
             // TODO: Check layout compatibility:
             // Equal major (major indicates breaking layout change)
@@ -449,6 +459,8 @@ function _update_repository(cb) {
                 cb && cb(REPOS_NAME, 'already up to date');
             }
         }
+
+        session_error = undefined;
     });
 }
 
@@ -594,13 +606,15 @@ function _get_name(extension) {
 }
 
 function _get_display_name(name) {
-    return (name == REPOS_NAME ? 'Extension Repository' : _get_extension(name).display_name);
+    const extension = _get_extension(name);
+
+    return (name == REPOS_NAME ? 'Extension Repository' : extension && extension.display_name);
 }
 
 function _get_index_pair(name) {
     let index_pair = index_cache[name];
 
-    if (!index_pair) {
+    if (!index_pair && repos.categories) {
         for (let i = 0; i < repos.categories.length; i++) {
             const extensions = repos.categories[i].extensions;
 
@@ -631,7 +645,7 @@ function get_bind_props(name) {
 function _get_extension(name) {
     const index_pair = _get_index_pair(name);
 
-    return repos.categories[index_pair[0]].extensions[index_pair[1]];
+    return index_pair && repos.categories[index_pair[0]].extensions[index_pair[1]];
 }
 
 function _install(name, options, cb) {
@@ -778,7 +792,7 @@ function _get_log(index, cb) {
         const name = names[index];
         const log_file = log_dir + name + '.log';
 
-        _set_status(`Collecting logs of ${_get_display_name(name)}...`);
+        _set_status(`Collecting logs of ${_get_display_name(name) || name}...`);
         docker.get_log(name, log_file, () => {
             _get_log(index + 1, cb);
         });
