@@ -1,4 +1,4 @@
-// Copyright 2017 - 2021 The Appgineer
+// Copyright 2017 - 2022 The Appgineer
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -74,7 +74,6 @@ var repos = {};
 var stats_cache = {};
 var index_cache = {};
 var docker_installed = {};
-var install_options;
 var action_queue = {};
 var session_error;
 
@@ -105,9 +104,6 @@ function ApiExtensionInstaller(callbacks, features_file) {
     if (!features && data_root) {
         features = _read_JSON_file_sync(`${data_root}features.json`);
     }
-
-    // Load install_options from file
-    install_options = _read_JSON_file_sync(`${data_root}install-options.json`) || {};
 
     // Create log directory
     mkdirp(log_dir, (err, made) => {
@@ -274,24 +270,14 @@ ApiExtensionInstaller.prototype.get_features = function() {
 }
 
 ApiExtensionInstaller.prototype.get_extension_settings = function(name, cb) {
-    const options = install_options[name];
+    const extension = _get_extension(name);
 
-    if (options || name == REPOS_NAME) {
-        cb && cb(options);
+    if (name != REPOS_NAME && extension) {
+        docker.get_options_from_container(extension.image, (err, options) => {
+            cb && cb(options);
+        });
     } else {
-        const extension = _get_extension(name);
-
-        if (extension) {
-            docker.get_options_from_container(extension.image, (err, options) => {
-                if (options) {
-                    install_options[name] = options;
-                }
-
-                cb && cb(options);
-            });
-        } else {
-            cb && cb({});
-        }
+        cb && cb({});
     }
 }
 
@@ -316,12 +302,14 @@ ApiExtensionInstaller.prototype.perform_actions = function(actions) {
 
         switch (actions[name].action) {
             case ACTION_INSTALL:
-                _queue_action(name, { action: ACTION_INSTALL, options: options });
+                _queue_action(name, { action: ACTION_INSTALL, options });
                 break;
             case ACTION_UPDATE:
                 if (docker_installed[name]) {
-                    updates[name] = docker_installed[name];
-                    install_options[name] = options;
+                    updates[name] = {
+                        tag:    docker_installed[name],
+                        options
+                    };
                 }
                 break;
             case ACTION_UNINSTALL:
@@ -659,9 +647,6 @@ function _install(name, options, cb) {
 
             _set_status(`Installing: ${display_name}...`, false);
 
-            // Store options for future update requests
-            install_options[name] = options;
-
             docker.install(_get_extension(name).image, get_bind_props(name), options, true, (err, tag) => {
                 if (err) {
                     _set_status(`Installation failed: ${display_name}\n${err}`, true);
@@ -724,7 +709,7 @@ function _register_version(name, update, err) {
     session_error = undefined;
 }
 
-function _update(name, recreate, cb) {
+function _update(name, props, cb) {
     if (name) {
         _set_status(`Updating: ${_get_display_name(name)}...`, false);
 
@@ -733,10 +718,10 @@ function _update(name, recreate, cb) {
         } else if (docker_installed[name]) {
             const image = _get_extension(name).image;
             const bind_props = get_bind_props(name);
-            const options = install_options[name];
+            const options = props.options;
 
             if (options) {
-                docker.install(image, bind_props, options, recreate, (err) => {
+                docker.install(image, bind_props, options, props.recreate, (err) => {
                     cb && cb(name, err);
                 });
             } else {
@@ -744,10 +729,7 @@ function _update(name, recreate, cb) {
                     if (err) {
                         cb && cb(name, err);
                     } else {
-                        // Store options for future update requests
-                        install_options[name] = options;
-
-                        docker.install(image, bind_props, options, recreate, (err) => {
+                        docker.install(image, bind_props, options, props.recreate, (err) => {
                             cb && cb(name, err);
                         });
                     }
@@ -853,9 +835,6 @@ function _stop(name, user, cb) {
 
 function _terminate(exit_code) {
     ApiExtensionInstaller.prototype.docker_hub_logout.call(this, () => {
-        // Save install_options to file
-        fs.writeFileSync(`${data_root}install-options.json`, JSON.stringify(install_options));
-
         if (exit_code) {
             process.exit(exit_code);
         } else {
@@ -899,7 +878,7 @@ function _perform_action() {
                 _install(name, action_queue[name].options, _register_installed_version);
                 break;
             case ACTION_UPDATE:
-                _update(name, action_queue[name].recreate, _register_updated_version);
+                _update(name, action_queue[name], _register_updated_version);
                 break;
             case ACTION_UNINSTALL:
                 _uninstall(name, _unregister_version);
@@ -926,7 +905,7 @@ function _queue_updates(updates, manual) {
 
         for (const name in updates) {
             if (name != MANAGER_NAME) {
-                _queue_action(name, { action: ACTION_UPDATE, recreate: manual });
+                _queue_action(name, { action: ACTION_UPDATE, options: updates[name].options, recreate: manual });
             }
         }
 

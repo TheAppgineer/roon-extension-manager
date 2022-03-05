@@ -1,4 +1,4 @@
-// Copyright 2019 - 2021 The Appgineer
+// Copyright 2019 - 2022 The Appgineer
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -501,7 +501,7 @@ function _install(repo_tag_string, config, recreate, cb) {
 
                 if (up_to_date && !recreate) {
                     cb && cb('already up to date');
-                } else if (config && Object.keys(config).length) {
+                } else {
                     config.name  = name;
                     config.Image = repo_tag_string;
 
@@ -520,8 +520,6 @@ function _install(repo_tag_string, config, recreate, cb) {
                             _create_container(config, cb);
                         }
                     });
-                } else {
-                    cb && cb();
                 }
             }
         }
