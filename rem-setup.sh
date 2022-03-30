@@ -110,7 +110,7 @@ su -c "mkdir -p $ROOT_DIR" $USR
 if [ ! -f "$NAME.sh" ]; then
     # Download shell script
     echo -ne $DL_SCRPT
-    su -c "wget -q https://raw.githubusercontent.com/TheAppgineer/$NAME/v1.x/$NAME.sh" $USR
+    su -c "curl -sSfLO 'https://raw.githubusercontent.com/TheAppgineer/$NAME/v1.x/$NAME.sh'" $USR
     if [ $? -gt 0 ]; then
         echo -e $FAIL
         exit 1
